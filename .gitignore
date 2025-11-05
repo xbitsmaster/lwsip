@@ -2,6 +2,12 @@
 build/
 cmake-build-*/
 
+# OSAL
+build_osal/
+
+# 3rd party libraries
+3rds/
+
 # CMake generated files (in build directory)
 CMakeCache.txt
 CMakeFiles/
