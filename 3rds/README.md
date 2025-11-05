@@ -17,7 +17,28 @@ This directory contains all third-party libraries used by lwsip.
   - DHCP, DNS, SNMP support
 - **Use Case**: Provides network stack for RTOS targets without OS TCP/IP
 
-### 2. media-server
+### 2. mbedtls - Cryptographic Library
+- **Repository**: https://github.com/Mbed-TLS/mbedtls
+- **Version**: v4.0.0
+- **License**: Apache 2.0
+- **Purpose**: SSL/TLS and cryptographic library for embedded systems
+- **Features**:
+  - SSL/TLS v1.2 and v1.3 protocols
+  - DTLS (Datagram TLS)
+  - X.509 certificate handling (parsing, verification, creation)
+  - Cryptographic algorithms (AES, RSA, ECC, ChaCha20, etc.)
+  - Hash functions (SHA-256, SHA-512, etc.)
+  - Message Authentication Codes (HMAC, CMAC)
+  - Key exchange (ECDHE, DHE, RSA)
+  - Random number generation (CTR-DRBG, HMAC-DRBG)
+  - Small footprint and modular design
+- **Use Case**: Enable secure SIP (SIPS), SRTP, and TLS transport for lwsip
+  - Secure SIP signaling over TLS
+  - SRTP for encrypted media streams
+  - Certificate-based authentication
+  - End-to-end encryption
+
+### 3. media-server
 - **Repository**: https://github.com/ireader/media-server
 - **Purpose**: Media streaming protocols support
 - **Features**:
@@ -27,7 +48,7 @@ This directory contains all third-party libraries used by lwsip.
   - SDP (Session Description Protocol)
 - **Use Case**: Core SIP and media transport functionality
 
-### 3. sdk
+### 4. sdk
 - **Repository**: https://github.com/ireader/sdk
 - **Purpose**: Basic SDK utilities
 - **Features**:
@@ -38,7 +59,7 @@ This directory contains all third-party libraries used by lwsip.
   - System utilities
 - **Use Case**: Low-level networking and system utilities
 
-### 4. avcodec
+### 5. avcodec
 - **Repository**: https://github.com/ireader/avcodec
 - **Purpose**: Audio/Video codec support
 - **Features**:
@@ -47,7 +68,7 @@ This directory contains all third-party libraries used by lwsip.
   - Codec negotiation
 - **Use Case**: Media encoding/decoding for RTP streams
 
-### 5. pjsip
+### 6. pjsip
 - **Repository**: https://github.com/pjsip/pjproject
 - **Purpose**: Reference SIP implementation (optional)
 - **Features**:
@@ -56,7 +77,7 @@ This directory contains all third-party libraries used by lwsip.
   - NAT traversal
 - **Use Case**: Alternative SIP stack for comparison
 
-### 6. 3rd
+### 7. 3rd
 - **Repository**: https://github.com/ireader/3rd
 - **Purpose**: Additional third-party utilities
 - **Use Case**: Common utilities and helpers
@@ -68,6 +89,7 @@ These libraries are included in the main CMakeLists.txt:
 ```cmake
 set(COMMON_INCLUDES
     ${CMAKE_SOURCE_DIR}/3rds/lwip/src/include
+    ${CMAKE_SOURCE_DIR}/3rds/mbedtls/include
     ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/include
     ${CMAKE_SOURCE_DIR}/3rds/sdk/include
     # ... other includes
