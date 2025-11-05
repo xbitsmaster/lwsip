@@ -5,8 +5,10 @@ cmake-build-*/
 # OSAL
 build_osal/
 
-# 3rd party libraries
-3rds/
+# 3rd party libraries (managed by git submodules)
+# Ignore all subdirectories but keep README.md
+3rds/*
+!3rds/README.md
 
 # CMake generated files (in build directory)
 CMakeCache.txt
