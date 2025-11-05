@@ -1,0 +1,21 @@
+[submodule "3rds/media-server"]
+	path = 3rds/media-server
+	url = https://github.com/ireader/media-server.git
+[submodule "3rds/sdk"]
+	path = 3rds/sdk
+	url = https://github.com/ireader/sdk.git
+[submodule "3rds/avcodec"]
+	path = 3rds/avcodec
+	url = https://github.com/ireader/avcodec.git
+[submodule "3rds/3rd"]
+	path = 3rds/3rd
+	url = https://github.com/ireader/3rd.git
+[submodule "3rds/lwip"]
+	path = 3rds/lwip
+	url = https://github.com/lwip-tcpip/lwip.git
+[submodule "3rds/mbedtls"]
+	path = 3rds/mbedtls
+	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "3rds/pjsip"]
+	path = 3rds/pjsip
+	url = https://github.com/pjsip/pjproject.git
