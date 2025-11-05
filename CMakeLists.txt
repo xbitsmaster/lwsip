@@ -1,0 +1,117 @@
+cmake_minimum_required(VERSION 3.10)
+project(lwsip C)
+
+set(CMAKE_C_STANDARD 99)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# Ensure out-of-source build
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_BINARY_DIR)
+    message(FATAL_ERROR "In-source builds are not allowed. Please create a build directory and run cmake from there.")
+endif()
+
+# Set output directories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+# Platform-specific settings for media-server libraries
+set(MEDIA_PLATFORM "debug.-linux64")
+
+# ============================================================
+# Include Directories
+# ============================================================
+set(COMMON_INCLUDES
+    # lwsip headers
+    ${CMAKE_SOURCE_DIR}/include
+
+    # OSAL headers
+    ${CMAKE_SOURCE_DIR}/osal/include
+
+    # SDK headers
+    ${CMAKE_SOURCE_DIR}/3rds/sdk/include
+    ${CMAKE_SOURCE_DIR}/3rds/sdk/libhttp/include
+    ${CMAKE_SOURCE_DIR}/3rds/sdk/libaio/include
+    ${CMAKE_SOURCE_DIR}/3rds/sdk/libice/include
+
+    # media-server headers
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/librtp/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/librtsp/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmpeg/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libflv/include
+)
+
+# ============================================================
+# Library Paths
+# ============================================================
+set(OSAL_LIBS ${CMAKE_SOURCE_DIR}/osal/lib/liblwsosal.a)
+set(LIB_SIP ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/${MEDIA_PLATFORM}/libsip.a)
+set(LIB_RTP ${CMAKE_SOURCE_DIR}/3rds/media-server/librtp/${MEDIA_PLATFORM}/librtp.a)
+set(LIB_RTSP ${CMAKE_SOURCE_DIR}/3rds/media-server/librtsp/${MEDIA_PLATFORM}/librtsp.a)
+set(LIB_MPEG ${CMAKE_SOURCE_DIR}/3rds/media-server/libmpeg/${MEDIA_PLATFORM}/libmpeg.a)
+set(LIB_MOV ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/${MEDIA_PLATFORM}/libmov.a)
+set(LIB_FLV ${CMAKE_SOURCE_DIR}/3rds/media-server/libflv/${MEDIA_PLATFORM}/libflv.a)
+set(LIB_HTTP ${CMAKE_SOURCE_DIR}/3rds/sdk/libhttp/${MEDIA_PLATFORM}/libhttp.a)
+set(LIB_AIO ${CMAKE_SOURCE_DIR}/3rds/sdk/libaio/${MEDIA_PLATFORM}/libaio.a)
+set(LIB_ICE ${CMAKE_SOURCE_DIR}/3rds/sdk/libice/${MEDIA_PLATFORM}/libice.a)
+set(LIB_SDK ${CMAKE_SOURCE_DIR}/3rds/sdk/libsdk/${MEDIA_PLATFORM}/libsdk.a)
+
+# Common libraries to link
+set(COMMON_LIBS
+    ${LIB_SIP}
+    ${LIB_RTP}
+    ${LIB_RTSP}
+    ${LIB_MPEG}
+    ${LIB_MOV}
+    ${LIB_FLV}
+    ${LIB_HTTP}
+    ${LIB_AIO}
+    ${LIB_ICE}
+    ${LIB_SDK}
+    ${OSAL_LIBS}
+    pthread
+)
+
+# ============================================================
+# lwsip Library
+# ============================================================
+set(LWS_SOURCES
+    src/lws_client.c
+    src/lws_uac.c
+    src/lws_uas.c
+    src/lws_session.c
+    src/lws_transport_tcp.c
+    src/lws_transport_mqtt.c
+    src/lws_payload.c
+    src/lws_media.c
+    src/lws_ice.c
+    src/lws_error.c
+    src/lws_sip_timer.c
+)
+
+add_library(lwsip_static STATIC ${LWS_SOURCES})
+set_target_properties(lwsip_static PROPERTIES OUTPUT_NAME "lwsip")
+
+target_include_directories(lwsip_static PUBLIC
+    ${COMMON_INCLUDES}
+)
+
+target_compile_definitions(lwsip_static PRIVATE __LWS_PTHREAD__)
+
+target_link_libraries(lwsip_static
+    ${COMMON_LIBS}
+)
+
+# ============================================================
+# lwsip-cli Executable
+# ============================================================
+add_subdirectory(cmd)
+
+# ============================================================
+# Installation
+# ============================================================
+install(TARGETS lwsip_static DESTINATION lib)
+install(TARGETS lwsip-cli DESTINATION bin)
+install(DIRECTORY include/ DESTINATION include/lwsip
+    FILES_MATCHING PATTERN "*.h")
