@@ -117,6 +117,7 @@ static void mock_on_sdp_ready(
     }
 }
 
+__attribute__((unused))
 static void mock_on_candidate(
     lws_sess_t* sess,
     const char* candidate,
@@ -131,6 +132,7 @@ static void mock_on_candidate(
     }
 }
 
+__attribute__((unused))
 static void mock_on_connected(
     lws_sess_t* sess,
     void* userdata)
@@ -141,6 +143,7 @@ static void mock_on_connected(
     g_on_connected_called++;
 }
 
+__attribute__((unused))
 static void mock_on_disconnected(
     lws_sess_t* sess,
     const char* reason,

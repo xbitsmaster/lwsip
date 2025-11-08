@@ -45,6 +45,8 @@ static test_status_t udp_status = {0};
 static void udp_server_on_data(lws_trans_t* trans, const void* data, int len,
                                 const lws_addr_t* from, void* userdata)
 {
+    LWS_UNUSED(userdata);
+
     printf("[UDP Server] Received %d bytes from %s:%d\n", len, from->ip, from->port);
     printf("[UDP Server] Data: %.*s\n", len, (char*)data);
 
@@ -60,6 +62,9 @@ static void udp_server_on_data(lws_trans_t* trans, const void* data, int len,
 static void udp_server_on_error(lws_trans_t* trans, int error_code,
                                  const char* error_msg, void* userdata)
 {
+    LWS_UNUSED(trans);
+    LWS_UNUSED(userdata);
+
     printf("[UDP Server] Error: %s (%d)\n", error_msg, error_code);
     udp_status.server_error = 1;
 }
@@ -68,6 +73,9 @@ static void udp_server_on_error(lws_trans_t* trans, int error_code,
 static void udp_client_on_data(lws_trans_t* trans, const void* data, int len,
                                 const lws_addr_t* from, void* userdata)
 {
+    LWS_UNUSED(trans);
+    LWS_UNUSED(userdata);
+
     printf("[UDP Client] Received %d bytes from %s:%d\n", len, from->ip, from->port);
     printf("[UDP Client] Data: %.*s\n", len, (char*)data);
 
@@ -77,6 +85,9 @@ static void udp_client_on_data(lws_trans_t* trans, const void* data, int len,
 static void udp_client_on_error(lws_trans_t* trans, int error_code,
                                  const char* error_msg, void* userdata)
 {
+    LWS_UNUSED(trans);
+    LWS_UNUSED(userdata);
+
     printf("[UDP Client] Error: %s (%d)\n", error_msg, error_code);
     udp_status.client_error = 1;
 }
@@ -84,6 +95,8 @@ static void udp_client_on_error(lws_trans_t* trans, int error_code,
 /* UDP Server线程 */
 static void* udp_server_thread(void* arg)
 {
+    LWS_UNUSED(arg);
+
     printf("[UDP Server] Starting on port %d...\n", TEST_UDP_PORT);
 
     /* 创建UDP服务端 */
@@ -205,6 +218,9 @@ int test_udp()
 
 int main(int argc, char* argv[])
 {
+    LWS_UNUSED(argc);
+    LWS_UNUSED(argv);
+
     printf("========================================\n");
     printf("lwsip Transport Layer Test\n");
     printf("========================================\n");
