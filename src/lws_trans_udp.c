@@ -71,9 +71,6 @@ static int udp_send(lws_trans_t* trans, const void* data, int len,
                     const lws_addr_t* to)
 {
     if (!trans || !data || len <= 0 || !to) {
-        printf("[UDP_SEND] ERROR: Invalid parameters (trans=%p, data=%p, len=%d, to=%p)\n",
-               trans, data, len, to);
-        fflush(stdout);
         return LWS_EINVAL;
     }
 
@@ -82,22 +79,13 @@ static int udp_send(lws_trans_t* trans, const void* data, int len,
     /* 解析目标地址 */
     struct sockaddr_in addr;
     if (lws_trans_parse_addr(to->ip, &addr) != LWS_OK) {
-        printf("[UDP_SEND] ERROR: Failed to parse address: %s\n", to->ip);
-        fflush(stdout);
         return LWS_EINVAL;
     }
     addr.sin_port = htons(to->port);
 
-    printf("[UDP_SEND] Sending %d bytes to %s:%d\n", len, to->ip, to->port);
-    printf("[UDP_SEND] First 100 bytes: %.100s\n", (char*)data);
-    fflush(stdout);
-
     /* 发送数据 */
     int sent = sendto(udp->fd, data, len, 0,
                      (struct sockaddr*)&addr, sizeof(addr));
-
-    printf("[UDP_SEND] sendto() returned: %d (errno=%d: %s)\n", sent, errno, sent < 0 ? strerror(errno) : "OK");
-    fflush(stdout);
 
     return sent;
 }
@@ -119,13 +107,7 @@ static int udp_loop(lws_trans_t* trans, int timeout_ms)
     pfd.fd = udp->fd;
     pfd.events = POLLIN;
 
-    printf("[UDP_LOOP] Calling poll(fd=%d, timeout=%d)...\n", udp->fd, timeout_ms);
-    fflush(stdout);
-
     int ret = poll(&pfd, 1, timeout_ms);
-
-    printf("[UDP_LOOP] poll() returned: %d (errno=%d)\n", ret, errno);
-    fflush(stdout);
 
     if (ret < 0) {
         if (errno == EINTR) {
@@ -141,44 +123,22 @@ static int udp_loop(lws_trans_t* trans, int timeout_ms)
 
     /* 处理可读事件 */
     if (pfd.revents & POLLIN) {
-        printf("[UDP_LOOP] POLLIN detected! Calling recvfrom()...\n");
-        fflush(stdout);
-
         struct sockaddr_in from_addr;
         socklen_t addr_len = sizeof(from_addr);
 
         int n = recvfrom(udp->fd, udp->recv_buffer, sizeof(udp->recv_buffer), 0,
                        (struct sockaddr*)&from_addr, &addr_len);
 
-        printf("[UDP_LOOP] recvfrom() returned: %d bytes (errno=%d)\n", n, errno);
-        fflush(stdout);
-
         if (n > 0) {
             lws_addr_t from;
             inet_ntop(AF_INET, &from_addr.sin_addr, from.ip, sizeof(from.ip));
             from.port = ntohs(from_addr.sin_port);
 
-            printf("[UDP_LOOP] Received %d bytes from %s:%d\n", n, from.ip, from.port);
-            printf("[UDP_LOOP] First 100 bytes: %.100s\n", udp->recv_buffer);
-            fflush(stdout);
-
             if (udp->handler.on_data) {
-                printf("[UDP_LOOP] Calling on_data callback...\n");
-                fflush(stdout);
-
                 udp->handler.on_data(trans, udp->recv_buffer, n, &from,
                                    udp->handler.userdata);
-
-                printf("[UDP_LOOP] on_data callback returned\n");
-                fflush(stdout);
-            } else {
-                printf("[UDP_LOOP] WARNING: on_data callback is NULL!\n");
-                fflush(stdout);
             }
         } else if (n < 0) {
-            printf("[UDP_LOOP] recvfrom error: %s\n", strerror(errno));
-            fflush(stdout);
-
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 if (udp->handler.on_error) {
                     udp->handler.on_error(trans, LWS_ERROR, "recvfrom failed",
@@ -187,9 +147,6 @@ static int udp_loop(lws_trans_t* trans, int timeout_ms)
                 return LWS_ERROR;
             }
         }
-    } else {
-        printf("[UDP_LOOP] poll() returned but no POLLIN (revents=0x%x)\n", pfd.revents);
-        fflush(stdout);
     }
 
     return LWS_OK;
