@@ -22,10 +22,10 @@
 #include <arpa/inet.h>
 
 /* lwsip headers */
-#include "../include/lws_sess.h"
-#include "../include/lws_err.h"
-#include "../osal/include/lws_mem.h"
-#include "../osal/include/lws_log.h"
+#include "lws_sess.h"
+#include "lws_err.h"
+#include "lws_mem.h"
+#include "lws_log.h"
 
 /* librtp headers */
 #include "rtp.h"

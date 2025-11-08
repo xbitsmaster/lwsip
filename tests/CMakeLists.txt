@@ -42,17 +42,17 @@ endif()
 add_compile_options(-Wall -Wextra -O0 -g -D__LWS_PTHREAD__)
 
 # ========================================
-# 1. sip_fake - Simple SIP fake server
+# 1. sip_server - Simple SIP server for testing
 # ========================================
-add_executable(sip_fake
-    sip_fake.c
+add_executable(sip_server
+    sip/sip_server.c
 )
 
-target_include_directories(sip_fake PRIVATE
+target_include_directories(sip_server PRIVATE
     ${TEST_INCLUDES}
 )
 
-# No special libraries needed for sip_fake (uses only standard C)
+# No special libraries needed for sip_server (uses only standard C)
 
 # ========================================
 # 2. lws_trans_test - Transport layer test
@@ -74,10 +74,10 @@ target_link_libraries(lws_trans_test
 )
 
 # ========================================
-# 3. caller - SIP caller test
+# 3. caller - SIP caller test (UAC)
 # ========================================
 add_executable(caller
-    caller.c
+    sip/caller.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
@@ -108,10 +108,10 @@ target_link_libraries(caller
 )
 
 # ========================================
-# 4. callee - SIP callee test
+# 4. callee - SIP callee test (UAS)
 # ========================================
 add_executable(callee
-    callee.c
+    sip/callee.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c

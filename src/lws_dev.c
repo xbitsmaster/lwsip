@@ -9,9 +9,9 @@
 #include <assert.h>
 #include <sys/time.h>
 
-#include "../include/lws_dev.h"
-#include "../include/lws_err.h"
-#include "../osal/include/lws_log.h"
+#include "lws_dev.h"
+#include "lws_err.h"
+#include "lws_log.h"
 #include "lws_dev_intl.h"
 
 /* ========================================

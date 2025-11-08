@@ -15,8 +15,8 @@
 #include "lws_trans.h"
 #include "lws_defs.h"
 #include "lws_err.h"
-#include "../osal/include/lws_mem.h"
-#include "../osal/include/lws_log.h"
+#include "lws_mem.h"
+#include "lws_log.h"
 
 /* ========================================
  * 虚函数表定义

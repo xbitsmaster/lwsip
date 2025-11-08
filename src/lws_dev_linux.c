@@ -9,9 +9,9 @@
 #include <string.h>
 #include <alsa/asoundlib.h>
 
-#include "../include/lws_dev.h"
-#include "../include/lws_err.h"
-#include "../osal/include/lws_log.h"
+#include "lws_dev.h"
+#include "lws_err.h"
+#include "lws_log.h"
 #include "lws_dev_intl.h"
 
 /* ========================================

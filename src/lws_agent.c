@@ -16,20 +16,20 @@
 #include "lws_defs.h"
 #include "lws_err.h"
 #include "lws_timer.h"
-#include "../osal/include/lws_mem.h"
-#include "../osal/include/lws_log.h"
+#include "lws_mem.h"
+#include "lws_log.h"
 
 #include <time.h>  /* For time() */
 
 /* libsip headers */
-#include "../3rds/media-server/libsip/include/sip-agent.h"
-#include "../3rds/media-server/libsip/include/sip-uac.h"
-#include "../3rds/media-server/libsip/include/sip-uas.h"
-#include "../3rds/media-server/libsip/include/sip-transport.h"
-#include "../3rds/media-server/libsip/include/sip-message.h"
+#include "sip-agent.h"
+#include "sip-uac.h"
+#include "sip-uas.h"
+#include "sip-transport.h"
+#include "sip-message.h"
 
 /* http parser for SIP message parsing */
-#include "../3rds/sdk/libhttp/include/http-parser.h"
+#include "http-parser.h"
 
 #include <string.h>
 #include <stdio.h>

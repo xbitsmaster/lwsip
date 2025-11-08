@@ -19,13 +19,11 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 # ============================================================
 option(ENABLE_MQTT "Enable MQTT transport support" OFF)
 option(ENABLE_FILE "Enable file-based media backend" ON)
-option(ENABLE_MEMORY "Enable memory-based media backend" OFF)
 option(ENABLE_DEVICE "Enable audio/video device backend" OFF)
 
 message(STATUS "Feature configuration:")
 message(STATUS "  MQTT transport: ${ENABLE_MQTT}")
 message(STATUS "  File backend: ${ENABLE_FILE}")
-message(STATUS "  Memory backend: ${ENABLE_MEMORY}")
 message(STATUS "  Device backend: ${ENABLE_DEVICE}")
 
 # Platform-specific settings for media-server libraries
@@ -164,13 +162,6 @@ if(ENABLE_FILE)
     target_compile_definitions(lwsip_static PUBLIC DEV_FILE)
 endif()
 
-if(ENABLE_MEMORY)
-    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_MEMORY)
-endif()
-
-if(ENABLE_DEVICE)
-    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_DEVICE)
-endif()
 
 target_link_libraries(lwsip_static
     ${COMMON_LIBS}
