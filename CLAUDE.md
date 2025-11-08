@@ -54,3 +54,7 @@ lwsip = light weight sip stack for RTOS
 ## 注意隐私
 - 项目中包含了一些敏感信息，特别是本地目录路径，要全部改为以项目根目录为基础的相对路径
 
+## 调测
+- 所有的日志输出，都使用lws_log_info, lws_log_debug, lws_log_error等接口；
+- 调用系统bash运行测试时，日志文件放到build/logs目录下，不要放到系统的/tmp目录；
+

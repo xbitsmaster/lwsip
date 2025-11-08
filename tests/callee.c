@@ -118,12 +118,15 @@ static void agent_on_register_result(lws_agent_t* agent, int success,
 {
     printf("[CALLEE_AGENT] Registration result: %s (code=%d, reason=%s)\n",
            success ? "SUCCESS" : "FAILED", status_code, reason_phrase);
+    fflush(stdout);
 
     if (success) {
         g_ctx.registered = 1;
         printf("[CALLEE] Waiting for incoming calls...\n");
+        fflush(stdout);
     } else {
         printf("[CALLEE] ERROR: Registration failed, cannot receive calls\n");
+        fflush(stdout);
     }
 
     (void)agent;
@@ -135,24 +138,21 @@ static void agent_on_incoming_call(lws_agent_t* agent, lws_dialog_t* dialog,
 {
     printf("[CALLEE_AGENT] Incoming call from %s@%s\n",
            from->username, from->domain);
+    fflush(stdout);
 
     g_ctx.call_received = 1;
     g_ctx.dialog = dialog;
 
-    printf("[CALLEE] Auto-answering call (without media)...\n");
+    printf("[CALLEE] Auto-answering call...\n");
+    fflush(stdout);
+    // Note: SDP will be generated asynchronously by media session layer
 
-    // Answer call with minimal SDP (no media)
-    const char* sdp =
-        "v=0\r\n"
-        "o=- 0 0 IN IP4 127.0.0.1\r\n"
-        "s=-\r\n"
-        "c=IN IP4 127.0.0.1\r\n"
-        "t=0 0\r\n";
-
-    if (lws_agent_answer_call(agent, dialog, sdp) != 0) {
+    if (lws_agent_answer_call(agent, dialog) != 0) {
         printf("[CALLEE] ERROR: Failed to answer call\n");
+        fflush(stdout);
     } else {
-        printf("[CALLEE] Call answered successfully\n");
+        printf("[CALLEE] Call answer initiated (waiting for SDP)\n");
+        fflush(stdout);
     }
 
     (void)userdata;
@@ -166,9 +166,11 @@ static void agent_on_dialog_state_changed(lws_agent_t* agent, lws_dialog_t* dial
     printf("[CALLEE_AGENT] Dialog state: %s -> %s\n",
            lws_dialog_state_name(old_state),
            lws_dialog_state_name(new_state));
+    fflush(stdout);
 
     if (new_state == LWS_DIALOG_STATE_TERMINATED) {
         printf("[CALLEE] Call terminated\n");
+        fflush(stdout);
         g_ctx.call_received = 0;
     }
 
@@ -181,9 +183,12 @@ static void agent_on_remote_sdp(lws_agent_t* agent, lws_dialog_t* dialog,
                                  const char* sdp, void* userdata)
 {
     printf("[CALLEE_AGENT] Received remote SDP (%zu bytes)\n", strlen(sdp));
+    fflush(stdout);
     printf("[CALLEE_AGENT] --- BEGIN REMOTE SDP ---\n%s\n[CALLEE_AGENT] --- END REMOTE SDP ---\n", sdp);
+    fflush(stdout);
 
     printf("[CALLEE] Remote SDP received (media session not implemented in this test)\n");
+    fflush(stdout);
 
     (void)agent;
     (void)dialog;
@@ -197,6 +202,7 @@ static void agent_on_remote_sdp(lws_agent_t* agent, lws_dialog_t* dialog,
 static void* event_loop_thread(void* arg)
 {
     printf("[CALLEE_THREAD] Event loop started\n");
+    fflush(stdout);
 
     while (g_ctx.running) {
         // Process SIP agent (transport is handled internally by agent)
@@ -209,6 +215,7 @@ static void* event_loop_thread(void* arg)
     }
 
     printf("[CALLEE_THREAD] Event loop stopped\n");
+    fflush(stdout);
     return NULL;
 
     (void)arg;
@@ -231,9 +238,11 @@ int main(void)
     printf("SIP Server: %s\n", SIP_SERVER);
     printf("Note: Only SIP protocol testing (no media)\n");
     printf("========================================\n\n");
+    fflush(stdout);
 
     // Initialize SIP agent
     printf("[1/3] Initializing SIP agent...\n");
+    fflush(stdout);
     lws_agent_config_t agent_cfg;
     memset(&agent_cfg, 0, sizeof(agent_cfg));
     snprintf(agent_cfg.username, sizeof(agent_cfg.username), "%s", USERNAME);
@@ -253,34 +262,43 @@ int main(void)
     g_ctx.agent = lws_agent_create(&agent_cfg, &agent_handler);
     if (!g_ctx.agent) {
         printf("ERROR: Failed to create SIP agent\n");
+        fflush(stdout);
         return 1;
     }
     printf("  SIP agent created successfully\n\n");
+    fflush(stdout);
 
     // Start event loop thread
     printf("[2/3] Starting event loop thread...\n");
+    fflush(stdout);
     g_ctx.running = 1;
     g_ctx.loop_thread = lws_thread_create(event_loop_thread, NULL);
     if (!g_ctx.loop_thread) {
         printf("ERROR: Failed to create event loop thread\n");
+        fflush(stdout);
         lws_agent_destroy(g_ctx.agent);
         return 1;
     }
     printf("  Event loop thread started\n\n");
+    fflush(stdout);
 
     // Start registration
     printf("[3/3] Starting SIP registration...\n");
+    fflush(stdout);
     if (lws_agent_start(g_ctx.agent) != 0) {
         printf("ERROR: Failed to start registration\n");
+        fflush(stdout);
         g_ctx.running = 0;
         lws_thread_join(g_ctx.loop_thread, NULL);
         lws_agent_destroy(g_ctx.agent);
         return 1;
     }
     printf("  Registration started\n\n");
+    fflush(stdout);
 
     // Wait for registration
     printf("Waiting for registration...\n");
+    fflush(stdout);
     int wait_count = 0;
     while (!g_ctx.registered && wait_count < 50) {
         lws_thread_sleep(100);  // 100ms
@@ -291,6 +309,7 @@ int main(void)
         printf("\n========================================\n");
         printf("Registration timeout or failed\n");
         printf("========================================\n\n");
+        fflush(stdout);
 
         // Cleanup
         g_ctx.running = 0;
@@ -308,6 +327,7 @@ int main(void)
     printf("Registered successfully!\n");
     printf("Waiting for incoming call (max %d seconds)...\n", WAIT_TIME_SEC);
     printf("========================================\n\n");
+    fflush(stdout);
 
     // Wait for incoming call
     wait_count = 0;
@@ -321,6 +341,7 @@ int main(void)
         printf("Call received and answered!\n");
         printf("Maintaining call for 15 seconds...\n");
         printf("========================================\n\n");
+        fflush(stdout);
 
         // Keep call for a while
         lws_thread_sleep(15000);
@@ -328,14 +349,17 @@ int main(void)
         printf("\n========================================\n");
         printf("Call duration completed\n");
         printf("========================================\n\n");
+        fflush(stdout);
     } else {
         printf("\n========================================\n");
         printf("No incoming call received within timeout\n");
         printf("========================================\n\n");
+        fflush(stdout);
     }
 
     // Cleanup
     printf("Cleaning up...\n");
+    fflush(stdout);
 
     // Stop event loop
     g_ctx.running = 0;
@@ -352,6 +376,7 @@ int main(void)
     printf("\n========================================\n");
     printf("CALLEE Test Completed\n");
     printf("========================================\n\n");
+    fflush(stdout);
 
     return 0;
 }

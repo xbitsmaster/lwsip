@@ -70,11 +70,7 @@
 /* 设备层 */
 #include "lws_dev.h"
 
-/* 协议层 */
-#include "lws_ice.h"
-#include "lws_rtp.h"
-
-/* 协调层 */
+/* 协调层 (直接使用 librtp/libice，不需要抽象层) */
 #include "lws_sess.h"
 #include "lws_agent.h"
 

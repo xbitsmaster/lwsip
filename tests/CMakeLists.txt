@@ -15,6 +15,8 @@ endif()
 
 # Library paths
 set(LIB_SIP ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/${MEDIA_PLATFORM}/libsip.a)
+set(LIB_RTP ${CMAKE_SOURCE_DIR}/3rds/media-server/librtp/${MEDIA_PLATFORM}/librtp.a)
+set(LIB_ICE ${CMAKE_SOURCE_DIR}/3rds/sdk/libice/${MEDIA_PLATFORM}/libice.a)
 set(LIB_SDK ${CMAKE_SOURCE_DIR}/3rds/sdk/libsdk/${MEDIA_PLATFORM}/libsdk.a)
 set(LIB_HTTP ${CMAKE_SOURCE_DIR}/3rds/sdk/libhttp/${MEDIA_PLATFORM}/libhttp.a)
 
@@ -23,9 +25,18 @@ set(TEST_INCLUDES
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/osal/include
     ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/include
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/librtp/include
     ${CMAKE_SOURCE_DIR}/3rds/sdk/include
     ${CMAKE_SOURCE_DIR}/3rds/sdk/libhttp/include
+    ${CMAKE_SOURCE_DIR}/3rds/sdk/libice/include
 )
+
+# Platform-specific libraries
+if(APPLE)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+    set(PLATFORM_FRAMEWORKS ${AUDIOTOOLBOX_FRAMEWORK} ${COREFOUNDATION_FRAMEWORK})
+endif()
 
 # Common compile flags
 add_compile_options(-Wall -Wextra -O0 -g -D__LWS_PTHREAD__)
@@ -67,10 +78,13 @@ target_link_libraries(lws_trans_test
 # ========================================
 add_executable(caller
     caller.c
-    lws_sess_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/src/lws_sess.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev_file.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev_macos.c
     ${CMAKE_SOURCE_DIR}/src/lws_timer.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mutex.c
@@ -79,12 +93,17 @@ add_executable(caller
 
 target_include_directories(caller PRIVATE
     ${TEST_INCLUDES}
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/include
 )
 
 target_link_libraries(caller
     ${LIB_SIP}
+    ${LIB_RTP}
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/${MEDIA_PLATFORM}/libmov.a
+    ${LIB_ICE}
     ${LIB_HTTP}
     ${LIB_SDK}
+    ${PLATFORM_FRAMEWORKS}
     pthread
 )
 
@@ -93,24 +112,32 @@ target_link_libraries(caller
 # ========================================
 add_executable(callee
     callee.c
-    lws_sess_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/src/lws_sess.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev_file.c
+    ${CMAKE_SOURCE_DIR}/src/lws_dev_macos.c
     ${CMAKE_SOURCE_DIR}/src/lws_timer.c
-    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mutex.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_thread.c
+    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
 )
 
 target_include_directories(callee PRIVATE
     ${TEST_INCLUDES}
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/include
 )
 
 target_link_libraries(callee
     ${LIB_SIP}
+    ${LIB_RTP}
+    ${CMAKE_SOURCE_DIR}/3rds/media-server/libmov/${MEDIA_PLATFORM}/libmov.a
+    ${LIB_ICE}
     ${LIB_HTTP}
     ${LIB_SDK}
+    ${PLATFORM_FRAMEWORKS}
     pthread
 )
 

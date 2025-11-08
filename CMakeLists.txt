@@ -79,6 +79,19 @@ set(LIB_AIO ${CMAKE_SOURCE_DIR}/3rds/sdk/libaio/${MEDIA_PLATFORM}/libaio.a)
 set(LIB_ICE ${CMAKE_SOURCE_DIR}/3rds/sdk/libice/${MEDIA_PLATFORM}/libice.a)
 set(LIB_SDK ${CMAKE_SOURCE_DIR}/3rds/sdk/libsdk/${MEDIA_PLATFORM}/libsdk.a)
 
+# Platform-specific libraries
+if(APPLE)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+    set(PLATFORM_LIBS ${AUDIOTOOLBOX_FRAMEWORK})
+elseif(UNIX)
+    # Linux: ALSA
+    find_package(ALSA)
+    if(ALSA_FOUND)
+        set(PLATFORM_LIBS ${ALSA_LIBRARIES})
+        include_directories(${ALSA_INCLUDE_DIRS})
+    endif()
+endif()
+
 # Common libraries to link
 set(COMMON_LIBS
     ${LIB_SIP}
@@ -92,6 +105,7 @@ set(COMMON_LIBS
     ${LIB_ICE}
     ${LIB_SDK}
     ${OSAL_LIBS}
+    ${PLATFORM_LIBS}
     pthread
 )
 
@@ -100,8 +114,36 @@ set(COMMON_LIBS
 # ============================================================
 set(LWS_SOURCES
     src/lws_agent.c
+    src/lws_trans.c
     src/lws_trans_udp.c
+    src/lws_sess.c
+    src/lws_dev.c
+    src/lws_timer.c
 )
+
+# Optional: file-based device backend
+if(ENABLE_FILE)
+    list(APPEND LWS_SOURCES src/lws_dev_file.c)
+endif()
+
+# Optional: MQTT transport
+if(ENABLE_MQTT)
+    # TODO: Add MQTT transport source when implemented
+    # list(APPEND LWS_SOURCES src/lws_trans_mqtt.c)
+endif()
+
+# Platform-specific device backends
+if(APPLE)
+    list(APPEND LWS_SOURCES src/lws_dev_macos.c)
+elseif(UNIX)
+    list(APPEND LWS_SOURCES src/lws_dev_linux.c)
+endif()
+
+# Optional: embedded device stub
+option(ENABLE_DEV_STUB "Enable device stub for embedded systems" OFF)
+if(ENABLE_DEV_STUB)
+    list(APPEND LWS_SOURCES src/lws_dev_stub.c)
+endif()
 
 add_library(lwsip_static STATIC ${LWS_SOURCES})
 set_target_properties(lwsip_static PROPERTIES OUTPUT_NAME "lwsip")
@@ -115,11 +157,11 @@ target_compile_definitions(lwsip_static PRIVATE __LWS_PTHREAD__ LWS_ENABLE_LOG D
 
 # Feature-based compile definitions
 if(ENABLE_MQTT)
-    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_TRANSPORT_MQTT)
+    target_compile_definitions(lwsip_static PUBLIC TRANS_MQTT)
 endif()
 
 if(ENABLE_FILE)
-    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_FILE)
+    target_compile_definitions(lwsip_static PUBLIC DEV_FILE)
 endif()
 
 if(ENABLE_MEMORY)

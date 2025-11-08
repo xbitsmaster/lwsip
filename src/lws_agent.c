@@ -91,6 +91,11 @@ struct lws_agent_t {
  * Forward declarations
  * ======================================== */
 
+/* Media session callbacks */
+static void sess_on_sdp_ready(lws_sess_t* sess, const char* sdp, void* userdata);
+static void sess_on_connected(lws_sess_t* sess, void* userdata);
+static void sess_on_disconnected(lws_sess_t* sess, const char* reason, void* userdata);
+
 /* UAC callback for REGISTER/unREGISTER responses */
 static int uac_onreply_callback(void* param, const struct sip_message_t* reply,
                                 struct sip_uac_transaction_t* t, int code);
@@ -218,6 +223,127 @@ static void lws_agent_destroy_dialog(lws_agent_t* agent, lws_dialog_intl_t* dlg)
     }
 
     lws_free(dlg);
+}
+
+/* ========================================
+ * Media session callbacks
+ * ======================================== */
+
+/**
+ * @brief SDP就绪回调 - 当媒体会话层完成ICE candidate收集后调用
+ *
+ * UAC流程: 在此回调中发送INVITE with SDP
+ * UAS流程: 在此回调中发送200 OK with SDP
+ */
+static void sess_on_sdp_ready(lws_sess_t* sess, const char* sdp, void* userdata)
+{
+    lws_dialog_intl_t* dlg = (lws_dialog_intl_t*)userdata;
+
+    if (!dlg || !dlg->agent || !sdp) {
+        lws_log_error(LWS_EINVAL, "[MEDIA_SESSION] Invalid parameters in sess_on_sdp_ready\n");
+        return;
+    }
+
+    lws_agent_t* agent = dlg->agent;
+
+    /* 保存本地SDP */
+    LWS_STRNCPY(dlg->local_sdp, sdp, sizeof(dlg->local_sdp));
+
+    lws_log_info("[MEDIA_SESSION] SDP ready (%zu bytes)\n", strlen(sdp));
+
+    /* 根据dialog方向决定操作 */
+    if (dlg->public.direction == LWS_DIALOG_OUTGOING) {
+        /* UAC: 发送INVITE with SDP */
+        lws_log_info("[MEDIA_SESSION] UAC sending INVITE with SDP\n");
+
+        /* 添加Content-Type header */
+        sip_uac_add_header(dlg->invite_txn, "Content-Type", "application/sdp");
+
+        /* 发送INVITE */
+        int ret = sip_uac_send(dlg->invite_txn, sdp, strlen(sdp),
+                              &agent->sip_transport, agent);
+        if (ret < 0) {
+            lws_log_error(LWS_ERR_SIP_SEND, "[MEDIA_SESSION] Failed to send INVITE: %d\n", ret);
+            /* TODO: 清理并通知应用层 */
+        } else {
+            lws_log_info("INVITE sent with SDP\n");
+        }
+
+    } else if (dlg->public.direction == LWS_DIALOG_INCOMING) {
+        /* UAS: 发送200 OK with SDP */
+        lws_log_info("[MEDIA_SESSION] UAS sending 200 OK with SDP\n");
+
+        if (!dlg->uas_txn) {
+            lws_log_error(LWS_ERROR, "[MEDIA_SESSION] No UAS transaction\n");
+            return;
+        }
+
+        /* 添加Content-Type header */
+        sip_uas_add_header(dlg->uas_txn, "Content-Type", "application/sdp");
+
+        /* 发送200 OK */
+        int ret = sip_uas_reply(dlg->uas_txn, 200, sdp, strlen(sdp), agent);
+        if (ret < 0) {
+            lws_log_error(LWS_ERR_SIP_SEND, "[MEDIA_SESSION] Failed to send 200 OK\n");
+            return;
+        }
+
+        /* 更新dialog状态 */
+        lws_dialog_state_t old_state = dlg->state;
+        dlg->state = LWS_DIALOG_STATE_CONFIRMED;
+
+        /* 触发回调 */
+        if (agent->handler.on_dialog_state_changed) {
+            agent->handler.on_dialog_state_changed(agent, (lws_dialog_t*)dlg,
+                                                   old_state, LWS_DIALOG_STATE_CONFIRMED,
+                                                   agent->handler.userdata);
+        }
+
+        /* 启动ICE连接 */
+        if (lws_sess_start_ice(sess) < 0) {
+            lws_log_error(LWS_ERROR, "[MEDIA_SESSION] Failed to start ICE\n");
+        }
+
+        /* 释放UAS transaction */
+        sip_uas_transaction_release(dlg->uas_txn);
+        dlg->uas_txn = NULL;
+
+        lws_log_info("[MEDIA_SESSION] Call answered, sent 200 OK with SDP\n");
+    }
+}
+
+/**
+ * @brief 媒体连接建立回调
+ */
+static void sess_on_connected(lws_sess_t* sess, void* userdata)
+{
+    lws_dialog_intl_t* dlg = (lws_dialog_intl_t*)userdata;
+    LWS_UNUSED(sess);
+
+    if (!dlg) {
+        return;
+    }
+
+    lws_log_info("[MEDIA_SESSION] Media connected (ICE connection established)\n");
+
+    /* TODO: 可以在这里通知应用层媒体已连接 */
+}
+
+/**
+ * @brief 媒体连接断开回调
+ */
+static void sess_on_disconnected(lws_sess_t* sess, const char* reason, void* userdata)
+{
+    lws_dialog_intl_t* dlg = (lws_dialog_intl_t*)userdata;
+    LWS_UNUSED(sess);
+
+    if (!dlg) {
+        return;
+    }
+
+    lws_log_info("[MEDIA_SESSION] Media disconnected (reason: %s)\n", reason ? reason : "unknown");
+
+    /* TODO: 可以在这里通知应用层媒体已断开 */
 }
 
 /* ========================================
@@ -385,6 +511,42 @@ static int sip_uas_oninvite(void* param, const struct sip_message_t* req,
         dlg->remote_sdp[len] = '\0';
     }
 
+    /* 创建媒体会话 (UAS) */
+    lws_sess_config_t sess_config;
+    memset(&sess_config, 0, sizeof(sess_config));
+    sess_config.enable_audio = 1;
+    sess_config.enable_video = 0;
+    /* TODO: 可以从agent config中获取STUN/TURN服务器配置 */
+
+    lws_sess_handler_t sess_handler;
+    memset(&sess_handler, 0, sizeof(sess_handler));
+    sess_handler.on_sdp_ready = sess_on_sdp_ready;
+    sess_handler.on_connected = sess_on_connected;
+    sess_handler.on_disconnected = sess_on_disconnected;
+    sess_handler.userdata = dlg;
+
+    dlg->sess = lws_sess_create(&sess_config, &sess_handler);
+    if (!dlg->sess) {
+        lws_log_error(LWS_ERR_MEDIA_SESSION, "Failed to create media session for UAS\n");
+        lws_agent_destroy_dialog(agent, dlg);
+        sip_uas_reply(t, 500, NULL, 0, param);  /* Internal Server Error */
+        return -1;
+    }
+
+    lws_log_info("[MEDIA_SESSION] Media session created for incoming call (Call-ID: %s)\n", call_id);
+
+    /* 设置远程SDP到媒体会话层 (如果INVITE包含SDP) */
+    if (data && bytes > 0) {
+        int ret = lws_sess_set_remote_sdp(dlg->sess, dlg->remote_sdp);
+        if (ret != 0) {
+            lws_log_error(LWS_ERR_MEDIA_SESSION, "Failed to set remote SDP for UAS\n");
+            lws_agent_destroy_dialog(agent, dlg);
+            sip_uas_reply(t, 488, NULL, 0, param);  /* Not Acceptable Here */
+            return -1;
+        }
+        lws_log_info("[MEDIA_SESSION] Remote SDP set from INVITE\n");
+    }
+
     /* 解析From地址 */
     lws_sip_addr_t from_addr;
     memset(&from_addr, 0, sizeof(from_addr));
@@ -468,10 +630,27 @@ static void trans_on_data(lws_trans_t* trans, const void* data, int len,
     lws_agent_t* agent = (lws_agent_t*)userdata;
     LWS_UNUSED(trans);
 
-    lws_log_debug("Received %d bytes from %s:%d\n", len, from->ip, from->port);
+    lws_log_info("[DEBUG] trans_on_data: Received %d bytes from %s:%d\n", len, from->ip, from->port);
 
     /* Detect message type: response starts with "SIP/2.0", request does not */
     int is_response = (len >= 7 && memcmp(data, "SIP/2.0", 7) == 0);
+
+    lws_log_info("[DEBUG] trans_on_data: is_response=%d\n", is_response);
+
+    /* Print first line of message for debugging */
+    const char* msg_str = (const char*)data;
+    int first_line_len = 0;
+    for (int i = 0; i < len && i < 200; i++) {
+        if (msg_str[i] == '\r' || msg_str[i] == '\n') {
+            first_line_len = i;
+            break;
+        }
+    }
+    if (first_line_len > 0) {
+        lws_log_info("[DEBUG] trans_on_data: First line: %.*s\n", first_line_len, msg_str);
+    }
+
+    lws_log_debug("Received %d bytes from %s:%d\n", len, from->ip, from->port);
 
     /* Parse SIP message */
     http_parser_t* parser = http_parser_create(
@@ -863,10 +1042,14 @@ static int uac_onreply_callback(void* param, const struct sip_message_t* reply,
     lws_agent_t* agent = (lws_agent_t*)param;
     LWS_UNUSED(reply);
 
+    lws_log_info("[DEBUG] uac_onreply_callback called: param=%p, code=%d\n", param, code);
+
     if (!agent) {
+        lws_log_error(LWS_EINVAL, "[DEBUG] uac_onreply_callback: agent is NULL!\n");
         return -1;
     }
 
+    lws_log_info("[DEBUG] UAC REGISTER response: %d, agent state=%d\n", code, agent->state);
     lws_log_info("UAC REGISTER response: %d\n", code);
 
     if (code >= 200 && code < 300) {
@@ -951,6 +1134,28 @@ static int uac_oninvite(void* param, const struct sip_message_t* reply,
             dlg->remote_sdp[copy_len] = '\0';
 
             lws_log_debug("Received remote SDP (%d bytes)\n", sdp_len);
+
+            /* 设置远程SDP到媒体会话层并启动ICE */
+            if (dlg->sess) {
+                int ret = lws_sess_set_remote_sdp(dlg->sess, dlg->remote_sdp);
+                if (ret != 0) {
+                    lws_log_error(LWS_ERR_MEDIA_SESSION,
+                                 "Failed to set remote SDP for UAC (ret=%d)\n", ret);
+                } else {
+                    lws_log_info("[MEDIA_SESSION] Remote SDP set successfully (UAC)\n");
+
+                    /* 启动ICE连接 */
+                    ret = lws_sess_start_ice(dlg->sess);
+                    if (ret != 0) {
+                        lws_log_error(LWS_ERR_MEDIA_SESSION,
+                                     "Failed to start ICE for UAC (ret=%d)\n", ret);
+                    } else {
+                        lws_log_info("[MEDIA_SESSION] Starting ICE negotiation (UAC received 200 OK)\n");
+                    }
+                }
+            } else {
+                lws_log_warn(LWS_ERROR, "No media session available for UAC\n");
+            }
         }
 
         /* Send ACK for 200 OK */
@@ -988,10 +1193,9 @@ static int uac_oninvite(void* param, const struct sip_message_t* reply,
  * Call control implementations
  * ======================================== */
 
-lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri,
-                                  const char* local_sdp)
+lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri)
 {
-    if (!agent || !target_uri || !local_sdp) {
+    if (!agent || !target_uri) {
         lws_log_error(LWS_EINVAL, "Invalid parameters\n");
         return NULL;
     }
@@ -1014,9 +1218,6 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri,
         return NULL;
     }
 
-    /* Save local SDP */
-    LWS_STRNCPY(dlg->local_sdp, local_sdp, sizeof(dlg->local_sdp));
-
     /* Set dialog direction and initial state */
     dlg->public.direction = LWS_DIALOG_OUTGOING;
     dlg->state = LWS_DIALOG_STATE_CALLING;
@@ -1030,7 +1231,7 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri,
         snprintf(from, sizeof(from), "<%s>", local_uri);
     }
 
-    /* Create UAC INVITE transaction */
+    /* Create UAC INVITE transaction (but don't send yet - wait for SDP) */
     dlg->invite_txn = sip_uac_invite(agent->sip_agent, from, target_uri,
                                     uac_oninvite, dlg);
     if (!dlg->invite_txn) {
@@ -1039,30 +1240,52 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri,
         return NULL;
     }
 
-    /* Add Content-Type header for SDP */
-    sip_uac_add_header(dlg->invite_txn, "Content-Type", "application/sdp");
+    /* 创建媒体会话 */
+    lws_sess_config_t sess_config;
+    memset(&sess_config, 0, sizeof(sess_config));
+    /* TODO: 配置STUN服务器等参数 */
+    sess_config.enable_audio = 1;
+    sess_config.enable_video = 0;
 
-    /* Send INVITE with local SDP */
-    int ret = sip_uac_send(dlg->invite_txn, local_sdp, strlen(local_sdp),
-                          &agent->sip_transport, agent);
-    if (ret < 0) {
-        lws_log_error(LWS_ERR_SIP_SEND, "Failed to send INVITE: %d\n", ret);
-        sip_uac_transaction_release(dlg->invite_txn);  /* Release on send failure */
+    lws_sess_handler_t sess_handler;
+    memset(&sess_handler, 0, sizeof(sess_handler));
+    sess_handler.on_sdp_ready = sess_on_sdp_ready;
+    sess_handler.on_connected = sess_on_connected;
+    sess_handler.on_disconnected = sess_on_disconnected;
+    sess_handler.userdata = dlg;
+
+    dlg->sess = lws_sess_create(&sess_config, &sess_handler);
+    if (!dlg->sess) {
+        lws_log_error(LWS_ERR_MEDIA, "Failed to create media session\n");
+        sip_uac_transaction_release(dlg->invite_txn);
         dlg->invite_txn = NULL;
         lws_agent_destroy_dialog(agent, dlg);
         return NULL;
     }
 
-    lws_log_info("INVITE sent to %s\n", target_uri);
+    lws_log_info("[MEDIA_SESSION] Media session created for UAC\n");
+
+    /* 开始收集ICE candidates (异步) */
+    if (lws_sess_gather_candidates(dlg->sess) < 0) {
+        lws_log_error(LWS_ERR_MEDIA, "Failed to start candidate gathering\n");
+        lws_agent_destroy_dialog(agent, dlg);
+        return NULL;
+    }
+
+    lws_log_info("[MEDIA_SESSION] Started gathering candidates (UAC)\n");
+
+    /*
+     * 注意：不在这里发送INVITE
+     * INVITE将在sess_on_sdp_ready回调中发送（当SDP准备好后）
+     */
 
     /* Return public dialog handle */
     return (lws_dialog_t*)dlg;
 }
 
-int lws_agent_answer_call(lws_agent_t* agent, lws_dialog_t* dialog,
-                         const char* local_sdp)
+int lws_agent_answer_call(lws_agent_t* agent, lws_dialog_t* dialog)
 {
-    if (!agent || !dialog || !local_sdp) {
+    if (!agent || !dialog) {
         return LWS_EINVAL;
     }
 
@@ -1081,38 +1304,30 @@ int lws_agent_answer_call(lws_agent_t* agent, lws_dialog_t* dialog,
         return LWS_ERROR;
     }
 
-    /* Save local SDP */
-    int len = LWS_MIN(strlen(local_sdp), sizeof(dlg->local_sdp) - 1);
-    memcpy(dlg->local_sdp, local_sdp, len);
-    dlg->local_sdp[len] = '\0';
-
-    /* Add Content-Type header */
-    sip_uas_add_header(dlg->uas_txn, "Content-Type", "application/sdp");
-
-    /* Send 200 OK with SDP */
-    int ret = sip_uas_reply(dlg->uas_txn, 200, local_sdp, strlen(local_sdp), agent);
-    if (ret < 0) {
-        lws_log_error(LWS_ERR_SIP_SEND, "Failed to send 200 OK\n");
-        return LWS_ERR_SIP_SEND;
+    /* Verify media session exists (should be created in sip_uas_oninvite) */
+    if (!dlg->sess) {
+        lws_log_error(LWS_ERROR, "No media session for dialog\n");
+        return LWS_ERROR;
     }
 
-    /* Update dialog state */
-    lws_dialog_state_t old_state = dlg->state;
-    dlg->state = LWS_DIALOG_STATE_CONFIRMED;
-
-    /* Trigger callback */
-    if (agent->handler.on_dialog_state_changed) {
-        agent->handler.on_dialog_state_changed(agent, dialog, old_state,
-                                               LWS_DIALOG_STATE_CONFIRMED,
-                                               agent->handler.userdata);
+    /*
+     * 开始收集ICE candidates（异步操作）
+     * 当SDP准备好后，sess_on_sdp_ready回调会被调用
+     * 在回调中会发送200 OK with SDP
+     */
+    int ret = lws_sess_gather_candidates(dlg->sess);
+    if (ret != 0) {
+        lws_log_error(LWS_ERROR, "Failed to start gathering candidates\n");
+        return LWS_ERROR;
     }
 
-    /* Release the UAS transaction (we're done with it) */
-    sip_uas_transaction_release(dlg->uas_txn);
-    dlg->uas_txn = NULL;
+    lws_log_info("Started gathering ICE candidates for answer (UAS)\n");
+    lws_log_info("[MEDIA_SESSION] Gathering candidates (will send 200 OK when ready)\n");
 
-    lws_log_info("Call answered, sent 200 OK with SDP\n");
-    lws_log_info("[MEDIA_SESSION] Media session established (UAS sent 200 OK + SDP)\n");
+    /*
+     * 注意：不在这里发送200 OK
+     * 200 OK将在sess_on_sdp_ready回调中发送（当SDP准备好后）
+     */
 
     return LWS_OK;
 }

@@ -58,6 +58,9 @@ extern "C" {
 #define LWS_MAX_PWD_LEN         256     /**< ICE pwd最大长度 */
 #define LWS_MAX_CANDIDATES      16      /**< 最大candidate数量 */
 
+#define LWS_ICE_UFRAG_LEN       8       /**< ICE ufrag生成长度 */
+#define LWS_ICE_PWD_LEN         24      /**< ICE pwd生成长度 */
+
 #define LWS_DEFAULT_STUN_PORT   3478    /**< STUN默认端口 */
 #define LWS_DEFAULT_TURN_PORT   3478    /**< TURN默认端口 */
 
@@ -82,6 +85,7 @@ extern "C" {
 #define LWS_DEFAULT_CHANNELS        1       /**< 默认声道数 */
 #define LWS_DEFAULT_FRAME_DURATION  20      /**< 默认帧时长(毫秒) */
 #define LWS_MAX_AUDIO_FRAME_SIZE    1024    /**< 最大音频帧大小(采样数) */
+#define LWS_MAX_AUDIO_SAMPLES_20MS  960     /**< 20ms最大采样数 (48kHz) */
 
 /* 视频相关 */
 #define LWS_DEFAULT_VIDEO_WIDTH     640     /**< 默认视频宽度 */
@@ -93,11 +97,11 @@ extern "C" {
  * RTP相关常量
  * ======================================== */
 
-#define LWS_DEFAULT_RTP_CLOCK_RATE  90000   /**< 默认RTP时钟频率(视频) */
-#define LWS_DEFAULT_RTCP_INTERVAL   5000    /**< 默认RTCP间隔(毫秒) */
-#define LWS_DEFAULT_JITTER_BUFFER   100     /**< 默认抖动缓冲区(毫秒) */
-#define LWS_MAX_JITTER_PACKETS      100     /**< 最大抖动缓冲区包数 */
-#define LWS_MAX_RTP_PACKET_SIZE     1500    /**< 最大RTP包大小 */
+#define LWS_DEFAULT_RTP_CLOCK_RATE      90000   /**< 默认RTP时钟频率(视频) */
+#define LWS_DEFAULT_RTCP_INTERVAL       5000    /**< 默认RTCP间隔(毫秒) */
+#define LWS_DEFAULT_JITTER_BUFFER_MS    50      /**< 默认抖动缓冲区(毫秒) */
+#define LWS_MAX_JITTER_PACKETS          100     /**< 最大抖动缓冲区包数 */
+#define LWS_MAX_RTP_PACKET_SIZE         1500    /**< 最大RTP包大小 */
 
 /* ========================================
  * 缓冲区大小

@@ -281,28 +281,32 @@ int lws_agent_loop(lws_agent_t* agent, int timeout_ms);
 
 /**
  * @brief 发起呼叫（UAC）
+ *
+ * 创建媒体会话并开始异步收集ICE candidates。
+ * INVITE消息将在媒体会话准备好SDP后自动发送（通过回调）。
+ *
  * @param agent Agent实例
  * @param target_uri 目标URI（格式："sip:user@domain"）
- * @param local_sdp 本地SDP字符串
  * @return Dialog实例，失败返回NULL
  */
 lws_dialog_t* lws_agent_make_call(
     lws_agent_t* agent,
-    const char* target_uri,
-    const char* local_sdp
+    const char* target_uri
 );
 
 /**
  * @brief 应答来电（UAS）
+ *
+ * 开始异步收集ICE candidates。
+ * 200 OK响应将在媒体会话准备好SDP后自动发送（通过回调）。
+ *
  * @param agent Agent实例
  * @param dialog Dialog实例
- * @param local_sdp 本地SDP字符串
  * @return 0成功，-1失败
  */
 int lws_agent_answer_call(
     lws_agent_t* agent,
-    lws_dialog_t* dialog,
-    const char* local_sdp
+    lws_dialog_t* dialog
 );
 
 /**

@@ -36,6 +36,7 @@ extern "C" {
 #define LWS_MODULE_SIP          0x02    /**< SIP layer */
 #define LWS_MODULE_RTP          0x03    /**< RTP layer */
 #define LWS_MODULE_CODEC        0x04    /**< Codec layer */
+#define LWS_MODULE_MEDIA        0x05    /**< Media session layer */
 
 /* ========================================
  * Error code helper macro
@@ -138,6 +139,25 @@ extern "C" {
 #define LWS_ERR_CODEC_NOTSUP    LWS_MAKE_ERROR(LWS_MODULE_CODEC, 0x0004)
 
 /* ========================================
+ * Media session layer errors (Module 005: 0x8005EEEE)
+ * ======================================== */
+
+/** Failed to create media session */
+#define LWS_ERR_MEDIA_SESSION   LWS_MAKE_ERROR(LWS_MODULE_MEDIA, 0x0001)
+
+/** General media error */
+#define LWS_ERR_MEDIA           LWS_MAKE_ERROR(LWS_MODULE_MEDIA, 0x0002)
+
+/** Failed to gather ICE candidates */
+#define LWS_ERR_MEDIA_ICE       LWS_MAKE_ERROR(LWS_MODULE_MEDIA, 0x0003)
+
+/** Failed to set remote SDP */
+#define LWS_ERR_MEDIA_SDP       LWS_MAKE_ERROR(LWS_MODULE_MEDIA, 0x0004)
+
+/** Media session connection timeout */
+#define LWS_ERR_MEDIA_TIMEOUT   LWS_MAKE_ERROR(LWS_MODULE_MEDIA, 0x0005)
+
+/* ========================================
  * Error code string conversion
  * ======================================== */
 
@@ -155,6 +175,7 @@ static inline const char* lws_err_module_name(int32_t errcode)
         case LWS_MODULE_SIP:       return "SIP";
         case LWS_MODULE_RTP:       return "RTP";
         case LWS_MODULE_CODEC:     return "CODEC";
+        case LWS_MODULE_MEDIA:     return "MEDIA";
         default:                   return "UNKNOWN";
     }
 }
@@ -198,6 +219,13 @@ static inline const char* lws_err_string(int32_t errcode)
         case LWS_ERR_CODEC_ENCODE:  return "Codec encode failed";
         case LWS_ERR_CODEC_DECODE:  return "Codec decode failed";
         case LWS_ERR_CODEC_NOTSUP:  return "Unsupported codec";
+
+        /* Media session errors */
+        case LWS_ERR_MEDIA_SESSION: return "Media session error";
+        case LWS_ERR_MEDIA:         return "General media error";
+        case LWS_ERR_MEDIA_ICE:     return "Failed to gather ICE candidates";
+        case LWS_ERR_MEDIA_SDP:     return "Failed to set remote SDP";
+        case LWS_ERR_MEDIA_TIMEOUT: return "Media session connection timeout";
 
         default:                    return "Unknown error";
     }

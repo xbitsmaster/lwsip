@@ -5,7 +5,7 @@
  * Uses sorted doubly-linked list (list.h) and background thread with 10ms time slice.
  */
 
-#include "lws_timer.h"
+#include "../include/lws_timer.h"
 #include "../osal/include/lws_mem.h"
 #include "../osal/include/lws_log.h"
 #include "../osal/include/lws_thread.h"
@@ -114,7 +114,7 @@ static void* lws_timer_loop(void* arg)
 {
     (void)arg;
 
-    lws_log_info(0, "Timer thread started (10ms time slice)\n");
+    lws_log_info("Timer thread started (10ms time slice)\n");
 
     while (g_timer_mgr.running) {
         uint64_t now = get_current_time_ms();
@@ -159,7 +159,7 @@ static void* lws_timer_loop(void* arg)
         lws_thread_sleep(10);
     }
 
-    lws_log_info(0, "Timer thread stopped\n");
+    lws_log_info("Timer thread stopped\n");
     return NULL;
 }
 
@@ -193,7 +193,7 @@ int lws_timer_init(void)
         return -1;
     }
 
-    lws_log_info(0, "Timer system initialized\n");
+    lws_log_info("Timer system initialized\n");
     return 0;
 }
 
@@ -226,7 +226,7 @@ void lws_timer_cleanup(void)
     /* Destroy mutex */
     lws_mutex_cleanup(&g_timer_mgr.mutex);
 
-    lws_log_info(0, "Timer system cleaned up\n");
+    lws_log_info("Timer system cleaned up\n");
 }
 
 sip_timer_t sip_timer_start(int timeout, sip_timer_handle handler, void* usrptr)
@@ -259,7 +259,7 @@ sip_timer_t sip_timer_start(int timeout, sip_timer_handle handler, void* usrptr)
     timer_list_insert_sorted(node);
     lws_mutex_unlock(&g_timer_mgr.mutex);
 
-    lws_log_debug(0, "Timer started: id=%p, timeout=%dms, expire=%llu\n",
+    lws_log_debug("Timer started: id=%p, timeout=%dms, expire=%llu\n",
                   (void*)node, timeout, (unsigned long long)node->expire_time_ms);
 
     /* Return the node pointer as the timer ID */
@@ -276,7 +276,7 @@ int sip_timer_stop(sip_timer_t* id)
 
     if (!(*id)) {
         /* Timer already stopped or never started - return error to match libsip behavior */
-        lws_log_debug(0, "Timer ID is NULL (already stopped or never started)\n");
+        lws_log_debug("Timer ID is NULL (already stopped or never started)\n");
         return -1;
     }
 
@@ -294,15 +294,41 @@ int sip_timer_stop(sip_timer_t* id)
     lws_mutex_unlock(&g_timer_mgr.mutex);
 
     if (removed) {
-        lws_log_debug(0, "Timer stopped: id=%p\n", (void*)node);
+        lws_log_debug("Timer stopped: id=%p\n", (void*)node);
         lws_free(removed);
         *id = NULL;  /* Clear the ID */
         return 0;
     } else {
         /* Timer not found (already expired/firing) - return error so caller
          * doesn't release transaction reference (callback will do it) */
-        lws_log_debug(0, "Timer not found: id=%p (already expired/firing)\n", (void*)node);
+        lws_log_debug("Timer not found: id=%p (already expired/firing)\n", (void*)node);
         *id = NULL;  /* Clear the ID anyway */
         return -1;  /* Return error - timer already gone */
+    }
+}
+
+/* ========================================
+ * STUN Timer API (aliases for libice)
+ * ======================================== */
+
+/**
+ * @brief STUN timer start (alias for sip_timer_start)
+ *
+ * libice uses stun_timer_* functions which are the same as sip_timer_* functions.
+ */
+void* stun_timer_start(int timeout, void (*handler)(void*), void* usrptr)
+{
+    return sip_timer_start(timeout, handler, usrptr);
+}
+
+/**
+ * @brief STUN timer stop (alias for sip_timer_stop)
+ *
+ * libice uses stun_timer_* functions which are the same as sip_timer_* functions.
+ */
+void stun_timer_stop(void** id)
+{
+    if (id) {
+        sip_timer_stop((sip_timer_t*)id);
     }
 }
