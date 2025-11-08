@@ -146,8 +146,24 @@ int main(int argc, char* argv[])
 
     // Configure client
     memset(&config, 0, sizeof(config));
-    strncpy(config.server_host, argv[1], sizeof(config.server_host) - 1);
-    config.server_port = 5060;
+
+    // Parse server address (support both "host" and "host:port" formats)
+    const char* colon = strchr(argv[1], ':');
+    if (colon) {
+        // Format: host:port
+        size_t host_len = colon - argv[1];
+        if (host_len >= sizeof(config.server_host)) {
+            host_len = sizeof(config.server_host) - 1;
+        }
+        strncpy(config.server_host, argv[1], host_len);
+        config.server_host[host_len] = '\0';
+        config.server_port = atoi(colon + 1);
+    } else {
+        // Format: host (use default port)
+        strncpy(config.server_host, argv[1], sizeof(config.server_host) - 1);
+        config.server_port = 5060;
+    }
+
     strncpy(config.username, argv[2], sizeof(config.username) - 1);
     if (argc >= 4) {
         strncpy(config.password, argv[3], sizeof(config.password) - 1);

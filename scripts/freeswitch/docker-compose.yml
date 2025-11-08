@@ -2,37 +2,22 @@ version: '3.8'
 
 services:
   freeswitch:
-    image: signalwire/freeswitch:latest
+    image: safarov/freeswitch:latest
     container_name: freeswitch
     restart: unless-stopped
-    ports:
-      # SIP端口
-      - "5060:5060/tcp"
-      - "5060:5060/udp"
-      - "5080:5080/tcp"
-      - "5080:5080/udp"
-      # RTP端口范围
-      - "16384-16394:16384-16394/udp"
-      # ESL端口（事件套接字）
-      - "8021:8021/tcp"
+    network_mode: "host"
     volumes:
-      - ./config/vars.xml:/etc/freeswitch/vars.xml:ro
-      - ./config/sip_profiles:/etc/freeswitch/sip_profiles:ro
       - ./config/directory:/etc/freeswitch/directory:ro
       - freeswitch-sounds:/usr/share/freeswitch/sounds
       - freeswitch-recordings:/var/lib/freeswitch/recordings
       - freeswitch-logs:/var/log/freeswitch
     environment:
       - FREESWITCH_EXTERNAL_IP=198.19.249.149
-      - FREESWITCH_LOCAL_IP=auto
-    networks:
-      - freeswitch_net
+      - FREESWITCH_LOCAL_IP=198.19.249.149
+    cap_add:
+      - SYS_NICE
 
 volumes:
   freeswitch-sounds:
   freeswitch-recordings:
   freeswitch-logs:
-
-networks:
-  freeswitch_net:
-    driver: bridge

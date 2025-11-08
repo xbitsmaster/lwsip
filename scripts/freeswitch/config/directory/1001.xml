@@ -1,8 +1,9 @@
 <include>
-  <user id="1001">
+  <user id="1001" number-alias="1001">
     <params>
       <param name="password" value="1234"/>
       <param name="vm-password" value="1001"/>
+      <param name="dial-string" value="{^^:sip_invite_domain=${dialed_domain}:presence_id=${dialed_user}@${dialed_domain}}${sofia_contact(*/${dialed_user}@${dialed_domain})}"/>
     </params>
     <variables>
       <variable name="toll_allow" value="domestic,international,local"/>
