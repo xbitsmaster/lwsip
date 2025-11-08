@@ -651,6 +651,84 @@ static void handle_invite(
         return;
     }
 
+    // ========================================
+    // UAS Simulation Mode (Scenario Mode)
+    // ========================================
+    if (g_scenario != SCENARIO_NONE) {
+        printf("[SIP_FAKE]   UAS simulation mode: ");
+
+        switch (g_scenario) {
+            case SCENARIO_NORMAL:
+                printf("Sending 200 OK\n");
+                {
+                    char response[MAX_PACKET_SIZE];
+                    int response_len = generate_response(
+                        response, sizeof(response),
+                        200, "OK",
+                        via, from, to, call_id, cseq, NULL);
+
+                    sendto(sock, response, response_len, 0,
+                           (struct sockaddr*)client_addr, sizeof(*client_addr));
+                }
+                break;
+
+            case SCENARIO_BUSY:
+                printf("Sending 486 Busy Here\n");
+                {
+                    char response[MAX_PACKET_SIZE];
+                    int response_len = generate_response(
+                        response, sizeof(response),
+                        486, "Busy Here",
+                        via, from, to, call_id, cseq, NULL);
+
+                    sendto(sock, response, response_len, 0,
+                           (struct sockaddr*)client_addr, sizeof(*client_addr));
+                }
+                break;
+
+            case SCENARIO_REJECT:
+                printf("Sending 603 Decline\n");
+                {
+                    char response[MAX_PACKET_SIZE];
+                    int response_len = generate_response(
+                        response, sizeof(response),
+                        603, "Decline",
+                        via, from, to, call_id, cseq, NULL);
+
+                    sendto(sock, response, response_len, 0,
+                           (struct sockaddr*)client_addr, sizeof(*client_addr));
+                }
+                break;
+
+            case SCENARIO_TIMEOUT:
+                printf("Simulating timeout (no response sent)\n");
+                // Do not send any response
+                break;
+
+            case SCENARIO_UNAVAILABLE:
+                printf("Sending 480 Temporarily Unavailable\n");
+                {
+                    char response[MAX_PACKET_SIZE];
+                    int response_len = generate_response(
+                        response, sizeof(response),
+                        480, "Temporarily Unavailable",
+                        via, from, to, call_id, cseq, NULL);
+
+                    sendto(sock, response, response_len, 0,
+                           (struct sockaddr*)client_addr, sizeof(*client_addr));
+                }
+                break;
+
+            default:
+                printf("ERROR: Unknown scenario\n");
+                break;
+        }
+        return;
+    }
+
+    // ========================================
+    // Router Mode (Default)
+    // ========================================
     // Extract target username from To header
     char target_username[MAX_USERNAME_LEN];
     if (extract_username(to, target_username, sizeof(target_username)) != 0) {
@@ -863,11 +941,58 @@ static void handle_response(
 /**
  * @brief Main function
  */
-int main(void)
+/**
+ * @brief Parse command-line arguments
+ */
+static void parse_args(int argc, char* argv[])
 {
+    for (int i = 1; i < argc; i++) {
+        if (strncmp(argv[i], "--scenario=", 11) == 0) {
+            const char* scenario = argv[i] + 11;
+
+            if (strcmp(scenario, "normal") == 0) {
+                g_scenario = SCENARIO_NORMAL;
+            } else if (strcmp(scenario, "busy") == 0) {
+                g_scenario = SCENARIO_BUSY;
+            } else if (strcmp(scenario, "reject") == 0) {
+                g_scenario = SCENARIO_REJECT;
+            } else if (strcmp(scenario, "timeout") == 0) {
+                g_scenario = SCENARIO_TIMEOUT;
+            } else if (strcmp(scenario, "unavailable") == 0) {
+                g_scenario = SCENARIO_UNAVAILABLE;
+            } else {
+                printf("ERROR: Unknown scenario '%s'\n", scenario);
+                printf("Valid scenarios: normal, busy, reject, timeout, unavailable\n");
+                exit(1);
+            }
+        }
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    // Parse command-line arguments
+    parse_args(argc, argv);
+
     printf("========================================\n");
     printf("SIP Fake Server\n");
     printf("========================================\n");
+
+    if (g_scenario == SCENARIO_NONE) {
+        printf("Mode: Router (forward messages)\n");
+    } else {
+        const char* scenario_name = "unknown";
+        switch (g_scenario) {
+            case SCENARIO_NORMAL:      scenario_name = "normal (200 OK)"; break;
+            case SCENARIO_BUSY:        scenario_name = "busy (486)"; break;
+            case SCENARIO_REJECT:      scenario_name = "reject (603)"; break;
+            case SCENARIO_TIMEOUT:     scenario_name = "timeout (no response)"; break;
+            case SCENARIO_UNAVAILABLE: scenario_name = "unavailable (480)"; break;
+            default: break;
+        }
+        printf("Mode: UAS Simulation - %s\n", scenario_name);
+    }
+
     printf("Listening on UDP port %d\n", SIP_PORT);
     printf("========================================\n\n");
     fflush(stdout);
