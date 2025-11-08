@@ -289,11 +289,46 @@ static int sip_uas_send(void* param, const struct cstring_t* protocol,
 {
     lws_agent_t* agent = (lws_agent_t*)param;
 
-    /* TODO: 解析URL，提取IP和端口 */
     lws_addr_t to;
-    /* Simplified: 直接发送到server */
-    snprintf(to.ip, sizeof(to.ip), "%s", agent->config.registrar);
-    to.port = agent->config.registrar_port ? agent->config.registrar_port : 5060;
+
+    /* Use received+rport if available (RFC 3581 rport) */
+    if (received && received->p && received->n > 0) {
+        /* Use received IP from Via header */
+        snprintf(to.ip, sizeof(to.ip), "%.*s", (int)received->n, received->p);
+        to.port = (rport > 0) ? rport : 5060;
+    } else if (url && url->p && url->n > 0) {
+        /* Parse URL to extract IP:port */
+        char url_str[256];
+        snprintf(url_str, sizeof(url_str), "%.*s", (int)url->n, url->p);
+
+        /* Simple parsing: look for IP:port pattern */
+        const char* colon = strchr(url_str, ':');
+        if (colon && *(colon-1) != '/') {  /* Avoid matching "sip:" */
+            const char* ip_start = url_str;
+            /* Find IP start (skip "sip:" prefix if present) */
+            const char* at_sign = strchr(url_str, '@');
+            if (at_sign) {
+                ip_start = at_sign + 1;
+            }
+
+            const char* port_colon = strrchr(ip_start, ':');
+            if (port_colon) {
+                snprintf(to.ip, sizeof(to.ip), "%.*s", (int)(port_colon - ip_start), ip_start);
+                to.port = atoi(port_colon + 1);
+            } else {
+                snprintf(to.ip, sizeof(to.ip), "%s", ip_start);
+                to.port = 5060;
+            }
+        } else {
+            /* No port, use default */
+            snprintf(to.ip, sizeof(to.ip), "%.*s", (int)url->n, url->p);
+            to.port = 5060;
+        }
+    } else {
+        /* Fallback: send to registrar */
+        snprintf(to.ip, sizeof(to.ip), "%s", agent->config.registrar);
+        to.port = agent->config.registrar_port ? agent->config.registrar_port : 5060;
+    }
 
     int sent = lws_trans_send(agent->trans, data, bytes, &to);
     if (sent < 0) {
