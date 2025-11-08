@@ -5,12 +5,12 @@
  * Uses sorted doubly-linked list (list.h) and background thread with 10ms time slice.
  */
 
-#include "../include/lws_timer.h"
-#include "../osal/include/lws_mem.h"
-#include "../osal/include/lws_log.h"
-#include "../osal/include/lws_thread.h"
-#include "../osal/include/lws_mutex.h"
-#include "../include/list.h"
+#include "lws_timer.h"
+#include "lws_mem.h"
+#include "lws_log.h"
+#include "lws_thread.h"
+#include "lws_mutex.h"
+#include "list.h"
 #include <string.h>
 #include <sys/time.h>
 

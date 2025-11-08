@@ -6,9 +6,9 @@
  * This file only contains library initialization, version info, and utilities.
  */
 
-#include "../include/lwsip.h"
-#include "../osal/include/lws_mem.h"
-#include "../osal/include/lws_log.h"
+#include "lwsip.h"
+#include "lws_mem.h"
+#include "lws_log.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>

@@ -1,29 +1,27 @@
-# lwsip-cli - Command Line Interface
+# lwsip-cli - SIP Command Line Client
 
-lwsip项目的命令行测试工具，用于快速测试SIP客户端功能。
+lwsip 项目的命令行 SIP 客户端工具，用于快速测试 SIP 呼叫功能。
 
 ## 功能特性
 
-- ✅ SIP注册/注销
-- ✅ 发起呼叫
-- ✅ 接听来电
-- ✅ 拒绝来电
-- ✅ 挂断呼叫
-- ✅ 交互式命令行界面
-- ✅ 实时状态回调显示
+- ✅ SIP 注册到服务器
+- ✅ 发起音频呼叫（UAC）
+- ✅ 接收音频呼叫（UAS）
+- ✅ 音频文件播放（支持 .wav 和 .mp4）
+- ✅ 实时音频采集（麦克风）
+- ✅ ICE 候选收集
+- ✅ RTP 媒体会话
+- ✅ 自动格式检测
 
 ## 构建
 
-lwsip-cli作为主项目的一部分自动构建：
+lwsip-cli 作为主项目的一部分自动构建：
 
 ```bash
-# 在lwsip根目录
-./build.sh
-
-# 或手动构建
+# 在 lwsip 根目录
 cd build
 cmake ..
-make
+make lwsip-cli
 
 # 构建产物
 # - 可执行文件: build/bin/lwsip-cli
@@ -31,242 +29,313 @@ make
 
 ## 使用方法
 
-### 基本用法
+### 命令行语法
 
 ```bash
-./build/bin/lwsip-cli <server> <username> [password]
+./build/bin/lwsip-cli [OPTIONS]
 ```
 
-**参数说明**:
-- `<server>` - SIP服务器IP地址或域名
-- `<username>` - SIP账号用户名
-- `[password]` - SIP账号密码（可选，默认使用用户名作为密码）
+### 必需参数
 
-### 示例
+| 参数 | 长参数 | 说明 | 示例 |
+|------|--------|------|------|
+| `-s` | `--server` | SIP 服务器地址 | `sip:192.168.1.100:5060` |
+| `-u` | `--username` | SIP 用户名 | `1001` |
+| `-p` | `--password` | SIP 密码 | `secret` |
+
+### 可选参数
+
+| 参数 | 长参数 | 说明 | 示例 |
+|------|--------|------|------|
+| `-d` | `--device` | 音频文件路径 (.wav 或 .mp4) | `audio.wav` |
+| `-c` | `--call` | 呼叫目标用户 | `1002` |
+| `-h` | `--help` | 显示帮助信息 | - |
+
+## 使用场景
+
+### 场景 1：等待来电（UAS 模式）
+
+使用真实麦克风作为音频源：
 
 ```bash
-# 使用用户名作为密码
-./build/bin/lwsip-cli 192.168.1.100 1002
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p secret
+```
 
-# 指定密码
-./build/bin/lwsip-cli 192.168.1.100 1002 1234
+**输出示例**：
+```
+===========================================
+  lwsip CLI - SIP Client v1.0
+===========================================
 
-# 使用域名
-./build/bin/lwsip-cli sip.example.com 1002 mypassword
+[CLI] Transport created on port 35420
+[CLI] Audio capture device opened
+[CLI] Audio playback device opened
+[CLI] Media session created
+[CLI] SIP agent created
+[CLI] ✓ Registered successfully
+[CLI] Waiting for incoming calls (press Ctrl+C to quit)...
+```
+
+### 场景 2：主动发起呼叫（UAC 模式）
+
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p secret \
+    -c 1002
+```
+
+**输出示例**：
+```
+===========================================
+  lwsip CLI - SIP Client v1.0
+===========================================
+
+[CLI] Transport created on port 35421
+[CLI] Audio capture device opened
+[CLI] Audio playback device opened
+[CLI] Media session created
+[CLI] SIP agent created
+[CLI] ✓ Registered successfully
+[CLI] Making call to: 1002
+[CLI] Call connected!
+```
+
+### 场景 3：使用音频文件
+
+使用 WAV 文件作为音频源：
+
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p secret \
+    -d audio.wav \
+    -c 1002
+```
+
+**输出示例**：
+```
+[CLI] Detected WAV file format (PCM 16-bit)
+[CLI] Audio capture device opened
+[CLI] Making call to: 1002
+```
+
+使用 MP4 文件：
+
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p secret \
+    -d audio.mp4 \
+    -c 1002
+```
+
+**输出示例**：
+```
+[CLI] Detected MP4 file format
+[CLI] Audio capture device opened
+[CLI] Making call to: 1002
 ```
 
 ## 默认配置
 
-lwsip-cli使用以下默认配置：
+lwsip-cli 使用以下默认配置：
 
-- **SIP服务器端口**: 5060
-- **本地端口**: 自动分配
 - **传输协议**: UDP
-- **注册过期时间**: 300秒
-- **音频**: 启用（PCMU编解码）
-- **视频**: 禁用
+- **本地端口**: 自动分配
+- **注册过期时间**: 3600 秒
+- **音频编码**: PCMA (G.711 A-law)
+- **音频采样率**: 8000 Hz
+- **音频声道**: 单声道 (Mono)
+- **帧时长**: 20ms
 
-## 交互式命令
+## 支持的音频格式
 
-启动后，可以使用以下命令：
+### WAV 文件
+- **编码**: PCM 16-bit Little Endian
+- **采样率**: 8000 Hz（可由文件头指定）
+- **声道**: 单声道
+- **文件扩展名**: `.wav`
 
-### call - 发起呼叫
+### MP4 文件
+- **编码**: PCMA (G.711 A-law)
+- **采样率**: 8000 Hz
+- **声道**: 单声道
+- **文件扩展名**: `.mp4`, `.m4a`
 
-```
-> call <uri>
-```
+## 完整示例
 
-发起到指定URI的呼叫。
+### 双向呼叫测试
 
-**示例**:
-```
-> call sip:1001@192.168.1.100
-> call 1001@192.168.1.100
-> call 1001
-```
-
-### answer - 接听来电
-
-```
-> answer
-```
-
-接听当前来电。
-
-**示例**:
-```
-[INCOMING] sip:1001@192.168.1.100 -> sip:1002@192.168.1.100 (SDP: 256 bytes)
-Type 'answer' to accept or 'reject' to decline
-> answer
-Answered call
+**终端 1 - 被叫方（1000）**：
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1000 \
+    -p 1000
 ```
 
-### reject - 拒绝来电
-
-```
-> reject
-```
-
-拒绝当前来电（返回486 Busy Here）。
-
-**示例**:
-```
-[INCOMING] sip:1001@192.168.1.100 -> sip:1002@192.168.1.100 (SDP: 256 bytes)
-Type 'answer' to accept or 'reject' to decline
-> reject
-Rejected call
+**终端 2 - 主叫方（1001）**：
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p 1001 \
+    -c 1000
 ```
 
-### hangup - 挂断呼叫
+### 使用文件进行回音测试
 
-```
-> hangup
-```
-
-挂断当前活动的呼叫。
-
-**示例**:
-```
-> hangup
-Hung up
+```bash
+./build/bin/lwsip-cli \
+    -s sip:192.168.1.100:5060 \
+    -u 1001 \
+    -p secret \
+    -d test.wav \
+    -c echo
 ```
 
-### quit/exit - 退出程序
+（假设 SIP 服务器有 `echo` 回音测试扩展）
 
-```
-> quit
-```
+## 工作流程
 
-或
+1. **初始化**
+   - 初始化 lwsip 定时器系统
+   - 创建 UDP 传输层
+   - 创建音频捕获和播放设备
+   - 创建媒体会话
+   - 创建 SIP 代理
 
-```
-> exit
-```
+2. **注册**
+   - 解析服务器地址
+   - 发送 REGISTER 请求
+   - 等待注册成功
 
-退出lwsip-cli程序。
+3. **呼叫处理**
+   - **UAC 模式**：注册成功后自动呼叫目标用户
+   - **UAS 模式**：等待来电并自动接听
 
-### help - 显示帮助
+4. **媒体会话**
+   - ICE 候选收集
+   - SDP 协商
+   - 建立 RTP 会话
+   - 开始音频传输
 
-```
-> help
-```
+5. **退出**
+   - 清理媒体会话
+   - 注销 SIP
+   - 释放所有资源
 
-或
+## 退出方式
 
-```
-> ?
-```
+使用以下方式退出程序：
 
-显示所有可用命令。
+1. 按 `Ctrl+C` 发送中断信号
+2. 发送 `SIGTERM` 信号
 
-## 状态回调
+退出时会自动：
+- 挂断活动呼叫
+- 注销 SIP 账号
+- 清理所有资源
 
-lwsip-cli会实时显示SIP状态变化：
+## 状态回调输出
 
 ### 注册状态
 
 ```
-[REG] REGISTERING (code: 0)
-[REG] REGISTERED (code: 200)
-[REG] UNREGISTERED (code: 200)
-[REG] FAILED (code: 401)
+[CLI] ✓ Registered successfully
+[CLI] ✗ Registration failed
 ```
 
 ### 呼叫状态
 
 ```
-[CALL] sip:1001@192.168.1.100 - CALLING
-[CALL] sip:1001@192.168.1.100 - RINGING
-[CALL] sip:1001@192.168.1.100 - ESTABLISHED
-[CALL] sip:1001@192.168.1.100 - TERMINATED
+[CLI] Making call to: 1002
+[CLI] Call connected!
+[CLI] Call terminated
 ```
 
 ### 来电通知
 
 ```
-[INCOMING] sip:1001@192.168.1.100 -> sip:1002@192.168.1.100 (SDP: 256 bytes)
-Type 'answer' to accept or 'reject' to decline
+[CLI] Incoming call from: 1001@192.168.1.100
+[CLI] Auto-answering call
 ```
 
-### 错误消息
+### 媒体会话
 
 ```
-[ERROR] 0x00000001: Out of memory
-[ERROR] 0x00000100: SIP registration failed
+[CLI] Media session created
+[CLI] Media session error: -1 - Connection failed
 ```
 
-## 使用场景示例
+## 调试
 
-### 场景1: 简单呼叫测试
+### 启用调试日志
+
+修改代码中的日志级别或使用系统工具：
 
 ```bash
-# 终端1: 启动1002账号
-./build/bin/lwsip-cli 192.168.1.100 1002 1234
-[REG] REGISTERED (code: 200)
-> call 1001
-[CALL] sip:1001@192.168.1.100 - CALLING
-[CALL] sip:1001@192.168.1.100 - RINGING
-[CALL] sip:1001@192.168.1.100 - ESTABLISHED
+# 抓取 SIP 消息
+sudo tcpdump -i any -n port 5060 -A -w sip.pcap
 
-# 通话中...
-
-> hangup
-[CALL] sip:1001@192.168.1.100 - TERMINATED
+# 抓取 RTP 流
+sudo tcpdump -i any -n portrange 10000-20000 -w rtp.pcap
 ```
 
-### 场景2: 接听来电测试
+### 使用 Wireshark 分析
 
 ```bash
-# 终端2: 启动1001账号
-./build/bin/lwsip-cli 192.168.1.100 1001 1234
-[REG] REGISTERED (code: 200)
-
-# 等待来电...
-[INCOMING] sip:1002@192.168.1.100 -> sip:1001@192.168.1.100 (SDP: 256 bytes)
-Type 'answer' to accept or 'reject' to decline
-
-> answer
-Answered call
-[CALL] sip:1002@192.168.1.100 - ESTABLISHED
-
-# 通话中...
+wireshark sip.pcap
 ```
 
-### 场景3: 拒绝来电
+查看 SIP 信令和 RTP 媒体流。
 
-```bash
-./build/bin/lwsip-cli 192.168.1.100 1001 1234
-[REG] REGISTERED (code: 200)
+## 与 SIP 服务器互通
 
-[INCOMING] sip:1002@192.168.1.100 -> sip:1001@192.168.1.100 (SDP: 256 bytes)
-Type 'answer' to accept or 'reject' to decline
+### Asterisk
 
-> reject
-Rejected call
+配置 `sip.conf`:
+```ini
+[1001]
+type=friend
+context=default
+host=dynamic
+secret=secret
+disallow=all
+allow=pcma
 ```
 
-## 退出
+### FreeSWITCH
 
-使用以下任一方式退出：
-
-1. 输入命令: `quit` 或 `exit`
-2. 按 `Ctrl+C`
-3. 发送 `SIGTERM` 信号
-
-退出时会自动：
-1. 挂断活动呼叫
-2. 注销SIP账号
-3. 清理所有资源
+配置用户：
+```xml
+<user id="1001">
+  <params>
+    <param name="password" value="secret"/>
+  </params>
+  <variables>
+    <variable name="accountcode" value="1001"/>
+  </variables>
+</user>
+```
 
 ## 限制
 
 当前版本的限制：
 
-- 仅支持单个并发呼叫
-- 音频编解码固定为PCMU
-- 不支持视频
-- 不支持TCP传输
-- 不支持TLS加密
+- 单个并发呼叫
+- 仅支持音频（无视频）
+- 仅支持 UDP 传输
+- 不支持 TLS 加密
+- 音频编码固定为 PCMA
+- WAV 文件格式支持有限
 
 这些限制将在未来版本中改进。
 
@@ -274,90 +343,97 @@ Rejected call
 
 ### 注册失败
 
+**症状**：
 ```
-[REG] FAILED (code: 401)
-```
-
-**原因**: 认证失败
-
-**解决**:
-- 检查用户名和密码是否正确
-- 确认SIP服务器配置正确
-
-### 连接超时
-
-```
-[ERROR] 0x00000005: Operation timeout
+[CLI] ✗ Registration failed
 ```
 
-**原因**: 无法连接到SIP服务器
+**解决方法**：
+1. 检查服务器地址和端口
+2. 验证用户名和密码
+3. 确认网络连接
+4. 检查防火墙设置
 
-**解决**:
-- 检查服务器IP地址是否正确
-- 确认网络连接正常
-- 检查防火墙设置
+### 音频设备打开失败
 
-### 无法呼叫
-
+**症状**：
 ```
-[CALL] sip:1001@192.168.1.100 - FAILED
+[CLI] Failed to create audio capture device
 ```
 
-**原因**: 呼叫失败
+**解决方法**：
+1. 检查音频文件是否存在
+2. 验证文件格式（.wav 或 .mp4）
+3. 确认文件权限
+4. 如果使用麦克风，检查设备权限
 
-**解决**:
-- 确认已成功注册
-- 检查对方账号是否存在
-- 查看对方是否在线
+### 无法建立呼叫
 
-## 调试
-
-如需详细日志，可以修改源代码中的日志级别，或使用strace/tcpdump等工具：
-
-```bash
-# 使用tcpdump抓包SIP消息
-sudo tcpdump -i any -n port 5060 -A
-
-# 使用strace跟踪系统调用
-strace -f ./build/bin/lwsip-cli 192.168.1.100 1002 1234
+**症状**：
 ```
+[CLI] Failed to make call
+```
+
+**解决方法**：
+1. 确认已成功注册
+2. 检查目标用户是否存在
+3. 验证对方是否在线
+4. 查看 SIP 服务器日志
 
 ## 源代码
 
-CLI工具源代码位于 `cmd/lwsip_cli.c`。
+CLI 工具源代码位于 `cmd/lwsip-cli.c`。
 
 主要功能模块：
-- 命令解析器
-- 状态回调处理
+- 命令行参数解析（getopt）
+- lwsip 组件初始化
+- SIP 代理事件回调
+- 媒体会话回调
 - 信号处理
 - 主事件循环
 
-## 与FreeSWITCH互通测试
-
-参考 [../scripts/freeswitch/README.md](../scripts/freeswitch/README.md) 配置FreeSWITCH环境，然后使用lwsip-cli进行互通测试。
-
 ## 开发和扩展
 
-如需添加新命令或功能：
+### 添加新的音频格式
 
-1. 在 `process_command()` 函数中添加命令处理逻辑
-2. 在 `help` 命令中添加说明
-3. 重新编译
-
-示例：添加 `mute` 命令
+修改 `detect_audio_file_format()` 函数：
 
 ```c
-else if (strcmp(command, "mute") == 0) {
-    // TODO: 实现静音功能
-    printf("Muted\n");
+else if (strcmp(ext_lower, "ogg") == 0) {
+    *format = LWS_AUDIO_FMT_OPUS;
+    *sample_rate = 48000;
+    *channels = 2;
+    return 0;
 }
 ```
 
+### 添加命令行选项
+
+在 `parse_args()` 函数中添加新选项：
+
+```c
+static struct option long_options[] = {
+    {"server", required_argument, 0, 's'},
+    {"username", required_argument, 0, 'u'},
+    {"password", required_argument, 0, 'p'},
+    {"device", required_argument, 0, 'd'},
+    {"call", required_argument, 0, 'c'},
+    {"codec", required_argument, 0, 'C'},  // 新选项
+    {"help", no_argument, 0, 'h'},
+    {0, 0, 0, 0}
+};
+```
+
+## 版本信息
+
+- **Version**: 1.0
+- **Last Updated**: 2025-11-08
+- **Status**: Stable
+
 ## 许可证
 
-与主项目lwsip保持一致。
+与主项目 lwsip 保持一致。
 
 ---
 
-**Version**: 1.0.0
-**Last Updated**: 2025-11-05
+更多信息请参考 [../README.md](../README.md)

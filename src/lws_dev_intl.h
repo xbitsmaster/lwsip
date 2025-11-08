@@ -6,7 +6,7 @@
 #ifndef __LWS_DEV_INTL_H__
 #define __LWS_DEV_INTL_H__
 
-#include "../include/lws_dev.h"
+#include "lws_dev.h"
 
 #ifdef __cplusplus
 extern "C" {
