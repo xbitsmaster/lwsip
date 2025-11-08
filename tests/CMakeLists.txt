@@ -166,4 +166,42 @@ target_link_libraries(callee
 #     )
 # endif()
 
+# ========================================
+# 5. lwsip_agent_test - Unit tests for lws_agent
+# ========================================
+add_executable(lwsip_agent_test
+    lwsip_agent_test.c
+    lwsip_agent_stub.c
+    ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
+)
+
+target_include_directories(lwsip_agent_test PRIVATE
+    ${TEST_INCLUDES}
+)
+
+# Link minimal dependencies for unit tests
+target_link_libraries(lwsip_agent_test
+    pthread
+)
+
+# ========================================
+# 6. lwsip_sess_test - Unit tests for lws_sess
+# ========================================
+add_executable(lwsip_sess_test
+    lwsip_sess_test.c
+    lwsip_sess_stub.c
+    ${CMAKE_SOURCE_DIR}/src/lws_sess.c
+    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
+)
+
+target_include_directories(lwsip_sess_test PRIVATE
+    ${TEST_INCLUDES}
+)
+
+# Link minimal dependencies for unit tests
+target_link_libraries(lwsip_sess_test
+    pthread
+)
+
 message(STATUS "Tests will be built to: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
