@@ -5,39 +5,6 @@
  * lwsip = Light-Weight SIP stack for RTOS
  *
  * lwsip是一个拿来即用的完整SIP客户端框架，专为嵌入式系统和RTOS环境设计。
- *
- * 核心特性：
- * - 无内部线程设计（应用层驱动loop函数）
- * - 事件驱动架构（轮询+回调）
- * - 清晰的五层分层（应用→协调→协议→设备→传输）
- * - RTOS友好（最小8KB栈）
- * - 开箱即用（loop函数+自动化流程）
- *
- * 使用步骤：
- * 1. 创建线程（或单线程）
- * 2. 调用loop函数：lws_agent_loop(), lws_sess_loop(), lws_trans_loop()
- * 3. 适配音视频设备
- *
- * 五层架构：
- * - 应用层：用户代码
- * - 协调层：lws_agent (SIP信令) + lws_sess (媒体会话协调)
- * - 协议层：lws_ice + lws_rtp (基于libice/librtp)
- * - 设备层：lws_dev (音视频设备抽象)
- * - 传输层：lws_trans (统一网络传输)
- *
- * 基础库关系：
- * - libsip: SIP协议处理
- * - libice: ICE/STUN/TURN NAT穿透
- * - librtp: RTP/RTCP媒体流
- *
- * lwsip补齐的功能：
- * - 统一传输层 (lws_trans)
- * - 设备抽象层 (lws_dev)
- * - 会话协调层 (lws_sess)
- * - 定时器管理 (集成到loop)
- * - 线程安全设计
- * - SDP自动生成
- * - 完整呼叫流程
  */
 
 #ifndef __LWSIP_H__
@@ -45,7 +12,6 @@
 
 #include <stdint.h>
 #include <stddef.h>
-#include <stdarg.h>
 
 /* ========================================
  * 版本信息
@@ -113,98 +79,10 @@ const char* lwsip_version(void);
 void lwsip_version_number(int* major, int* minor, int* patch);
 
 /* ========================================
- * 日志系统
- * ======================================== */
-
-/**
- * @brief 日志级别
- */
-typedef enum {
-    LWSIP_LOG_ERROR = 0,    /**< 错误 */
-    LWSIP_LOG_WARN = 1,     /**< 警告 */
-    LWSIP_LOG_INFO = 2,     /**< 信息 */
-    LWSIP_LOG_DEBUG = 3,    /**< 调试 */
-    LWSIP_LOG_TRACE = 4     /**< 跟踪 */
-} lwsip_log_level_t;
-
-/**
- * @brief 日志回调函数
- * @param level 日志级别
- * @param file 源文件名
- * @param line 行号
- * @param func 函数名
- * @param format 格式字符串
- * @param args 可变参数列表
- */
-typedef void (*lwsip_log_handler_f)(
-    lwsip_log_level_t level,
-    const char* file,
-    int line,
-    const char* func,
-    const char* format,
-    va_list args
-);
-
-/**
- * @brief 设置日志回调函数
- * @param handler 日志回调函数
- */
-void lwsip_set_log_handler(lwsip_log_handler_f handler);
-
-/**
- * @brief 设置日志级别
- * @param level 日志级别
- */
-void lwsip_set_log_level(lwsip_log_level_t level);
-
-/**
- * @brief 获取当前日志级别
- * @return 日志级别
- */
-lwsip_log_level_t lwsip_get_log_level(void);
-
-/* ========================================
- * 内存管理（可选）
- * ======================================== */
-
-/**
- * @brief 内存分配回调
- * @param size 分配大小
- * @return 内存指针，失败返回NULL
- */
-typedef void* (*lwsip_malloc_f)(size_t size);
-
-/**
- * @brief 内存释放回调
- * @param ptr 内存指针
- */
-typedef void (*lwsip_free_f)(void* ptr);
-
-/**
- * @brief 设置自定义内存分配函数
- * @param malloc_func 内存分配函数
- * @param free_func 内存释放函数
- */
-void lwsip_set_allocator(lwsip_malloc_f malloc_func, lwsip_free_f free_func);
-
-/* ========================================
- * 时间函数（可选）
- * ======================================== */
-
-/**
- * @brief 获取当前时间（微秒）回调
- * @return 当前时间（微秒）
- */
-typedef uint64_t (*lwsip_get_time_us_f)(void);
-
-/**
- * @brief 设置自定义时间函数
- * @param get_time_func 获取时间函数
- */
-void lwsip_set_time_func(lwsip_get_time_us_f get_time_func);
-
-/* ========================================
  * 错误码
+ *
+ * Note: 日志和内存管理已移至 OSAL 层
+ *       请使用 osal/include/lws_log.h 和 lws_mem.h
  * ======================================== */
 
 #define LWSIP_OK                0       /**< 成功 */
@@ -241,22 +119,11 @@ uint32_t lwsip_random(uint32_t min, uint32_t max);
 
 /**
  * @brief 生成UUID
- * @param buf 输出缓冲区（至少37字节）
+ * @param buf 输出缓冲区
+ * @param size 缓冲区大小（至少37字节）
  * @return 0成功，-1失败
  */
-int lwsip_generate_uuid(char* buf);
-
-/**
- * @brief 获取当前时间戳（微秒）
- * @return 时间戳（微秒）
- */
-uint64_t lwsip_get_time_us(void);
-
-/**
- * @brief 获取当前时间戳（毫秒）
- * @return 时间戳（毫秒）
- */
-uint64_t lwsip_get_time_ms(void);
+int lwsip_generate_uuid(char* buf, size_t size);
 
 /* ========================================
  * 示例代码说明
