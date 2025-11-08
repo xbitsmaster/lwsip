@@ -67,6 +67,7 @@ target_link_libraries(lws_trans_test
 # ========================================
 add_executable(caller
     caller.c
+    lws_sess_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
@@ -92,6 +93,7 @@ target_link_libraries(caller
 # ========================================
 add_executable(callee
     callee.c
+    lws_sess_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c

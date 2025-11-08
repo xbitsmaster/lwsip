@@ -214,7 +214,7 @@ static void lws_agent_destroy_dialog(lws_agent_t* agent, lws_dialog_intl_t* dlg)
 
     /* 销毁media session */
     if (dlg->sess) {
-        // lws_sess_destroy(dlg->sess);  // Simplified version: no media session
+        lws_sess_destroy(dlg->sess);
     }
 
     lws_free(dlg);
@@ -431,6 +431,9 @@ static int sip_uas_onbye(void* param, const struct sip_message_t* req,
     /* Extract call-ID */
     char call_id[LWS_MAX_CALL_ID_LEN];
     snprintf(call_id, sizeof(call_id), "%.*s", (int)req->callid.n, req->callid.p);
+
+    lws_log_info("Received BYE request (Call-ID: %s)\n", call_id);
+    lws_log_info("[MEDIA_SESSION] Media session terminated (UAS received BYE)\n");
 
     /* Find dialog */
     lws_dialog_intl_t* dlg = lws_agent_find_dialog(agent, call_id);
@@ -971,6 +974,7 @@ static int uac_oninvite(void* param, const struct sip_message_t* reply,
     /* Trigger remote SDP callback for 200 OK */
     if (code >= 200 && code < 300 && agent->handler.on_remote_sdp) {
         if (strlen(dlg->remote_sdp) > 0) {
+            lws_log_info("[MEDIA_SESSION] Media session established (UAC received 200 OK + SDP)\n");
             agent->handler.on_remote_sdp(agent, (lws_dialog_t*)dlg,
                                         dlg->remote_sdp,
                                         agent->handler.userdata);
@@ -1108,6 +1112,7 @@ int lws_agent_answer_call(lws_agent_t* agent, lws_dialog_t* dialog,
     dlg->uas_txn = NULL;
 
     lws_log_info("Call answered, sent 200 OK with SDP\n");
+    lws_log_info("[MEDIA_SESSION] Media session established (UAS sent 200 OK + SDP)\n");
 
     return LWS_OK;
 }
@@ -1242,13 +1247,14 @@ int lws_agent_hangup(lws_agent_t* agent, lws_dialog_t* dialog)
 
     /* Stop media session if active */
     if (dlg->sess) {
-        // lws_sess_stop(dlg->sess);  // Simplified version: no media session
+        lws_sess_stop(dlg->sess);
     }
 
     /* Destroy dialog */
     lws_agent_destroy_dialog(agent, dlg);
 
     lws_log_info("Call hung up, sent BYE\n");
+    lws_log_info("[MEDIA_SESSION] Media session terminated (UAC sent BYE)\n");
 
     return LWS_OK;
 }
@@ -1318,7 +1324,7 @@ int lws_agent_cancel_call(lws_agent_t* agent, lws_dialog_t* dialog)
 
     /* Stop media session if it was started */
     if (dlg->sess) {
-        // lws_sess_stop(dlg->sess);  // Simplified version: no media session
+        lws_sess_stop(dlg->sess);
     }
 
     /* Destroy dialog */
