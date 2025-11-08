@@ -21,78 +21,8 @@ extern "C" {
 
 /* ============================================================
  * Opaque Session Handle
+ * (Defined in lws_types.h)
  * ============================================================ */
-
-typedef struct lws_session lws_session_t;
-
-/* ============================================================
- * Session Callbacks
- * ============================================================ */
-
-typedef struct {
-    /**
-     * @brief Media negotiation completed
-     * Called after SDP negotiation completes
-     * @param param User parameter
-     * @param audio_codec Audio codec
-     * @param audio_rate Audio sample rate
-     * @param audio_channels Audio channels
-     * @param video_codec Video codec
-     * @param video_width Video width
-     * @param video_height Video height
-     * @param video_fps Video FPS
-     * @return 0 on success, <0 on error
-     */
-    int (*on_media_ready)(void* param,
-        lws_audio_codec_t audio_codec,
-        int audio_rate,
-        int audio_channels,
-        lws_video_codec_t video_codec,
-        int video_width,
-        int video_height,
-        int video_fps);
-
-    /**
-     * @brief Audio frame received
-     * @param param User parameter
-     * @param data Audio frame data
-     * @param bytes Frame size
-     * @param timestamp RTP timestamp
-     * @return 0 on success, <0 on error
-     */
-    int (*on_audio_frame)(void* param,
-        const void* data,
-        int bytes,
-        uint32_t timestamp);
-
-    /**
-     * @brief Video frame received
-     * @param param User parameter
-     * @param data Video frame data
-     * @param bytes Frame size
-     * @param timestamp RTP timestamp
-     * @return 0 on success, <0 on error
-     */
-    int (*on_video_frame)(void* param,
-        const void* data,
-        int bytes,
-        uint32_t timestamp);
-
-    /**
-     * @brief RTCP BYE received
-     * @param param User parameter
-     */
-    void (*on_bye)(void* param);
-
-    /**
-     * @brief Error occurred
-     * @param param User parameter
-     * @param errcode Error code
-     */
-    void (*on_error)(void* param, int errcode);
-
-    void* param;  // User parameter
-} lws_session_handler_t;
 
 /* ============================================================
  * Session API
@@ -104,9 +34,7 @@ typedef struct {
  * @param handler Event callbacks
  * @return Session handle or NULL on error
  */
-lws_session_t* lws_session_create(
-    const lws_config_t* config,
-    const lws_session_handler_t* handler);
+lws_session_t* lws_session_create(lws_config_t* config, lws_session_handler_t* handler, int enable_video);
 
 /**
  * @brief Destroy RTP session
@@ -258,6 +186,20 @@ void lws_session_set_dialog(lws_session_t* session, void* dialog);
  * @return SIP dialog handle or NULL
  */
 void* lws_session_get_dialog(lws_session_t* session);
+
+/**
+ * @brief Set INVITE transaction (internal use)
+ * @param session Session handle
+ * @param transaction INVITE transaction handle (struct sip_uac_transaction_t*)
+ */
+void lws_session_set_invite_transaction(lws_session_t* session, void* transaction);
+
+/**
+ * @brief Get INVITE transaction (internal use)
+ * @param session Session handle
+ * @return INVITE transaction handle or NULL
+ */
+void* lws_session_get_invite_transaction(lws_session_t* session);
 
 #ifdef __cplusplus
 }

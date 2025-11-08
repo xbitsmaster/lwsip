@@ -4,11 +4,24 @@
  *
  * This is a minimal SIP server that handles:
  * - REGISTER: Simple registration table management
- * - INVITE: Route from caller to callee
+ * - INVITE: Route from caller to callee OR simulate UAS scenarios
  * - ACK: Forward acknowledgments
  * - BYE: Terminate calls
  *
+ * Supports test scenarios for simulating different UAS behaviors:
+ * - normal: Accept call (200 OK)
+ * - busy: Busy (486 Busy Here)
+ * - reject: Decline call (603 Decline)
+ * - timeout: No response (simulate timeout)
+ * - unavailable: Temporarily unavailable (480)
+ *
  * Uses simple string parsing instead of full SIP stack.
+ *
+ * Usage:
+ *   sip_fake                    # Router mode (default)
+ *   sip_fake --scenario=normal  # UAS mode: accept calls
+ *   sip_fake --scenario=busy    # UAS mode: busy
+ *   sip_fake --scenario=reject  # UAS mode: reject calls
  */
 
 #include <stdio.h>
@@ -29,6 +42,21 @@
 #define MAX_REGISTRATIONS 100
 #define MAX_USERNAME_LEN 64
 #define MAX_ADDR_LEN 128
+
+/* ========================================
+ * Test Scenario Support
+ * ======================================== */
+
+typedef enum {
+    SCENARIO_NONE = 0,        /**< Router mode - forward messages */
+    SCENARIO_NORMAL,          /**< UAS mode - accept calls (200 OK) */
+    SCENARIO_BUSY,            /**< UAS mode - busy (486 Busy Here) */
+    SCENARIO_REJECT,          /**< UAS mode - reject (603 Decline) */
+    SCENARIO_TIMEOUT,         /**< UAS mode - no response (timeout) */
+    SCENARIO_UNAVAILABLE,     /**< UAS mode - unavailable (480) */
+} test_scenario_t;
+
+static test_scenario_t g_scenario = SCENARIO_NONE;  /**< Current scenario */
 
 /* ========================================
  * Registration Table

@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include "lws_mem.h"
+#include "lws_log.h"
 
 /* ============================================================
  * Timer Structure
@@ -30,6 +31,8 @@ static void* timer_thread_func(void* arg)
 {
     lws_timer_t* timer = (lws_timer_t*)arg;
 
+    lws_log_info("timer_thread_func: %d ms\n", timer->timeout_ms);
+
     // Sleep for the specified timeout
     usleep(timer->timeout_ms * 1000);  // usleep takes microseconds
 
@@ -49,6 +52,8 @@ static void* timer_thread_func(void* arg)
 
 void* sip_timer_start(int timeout, void (*ontimeout)(void* param), void* param)
 {
+    lws_log_info("sip_timer_start: %d ms\n", timeout);
+
     if (timeout <= 0 || !ontimeout) {
         return NULL;
     }
@@ -96,12 +101,16 @@ void sip_timer_stop(void* id)
 
 void* stun_timer_start(int ms, void (*ontimer)(void* param), void* param)
 {
+    lws_log_info("stun_timer_start: %d ms\n", ms);
+
     // Same implementation as sip_timer_start
     return sip_timer_start(ms, ontimer, param);
 }
 
 int stun_timer_stop(void* timer)
 {
+    lws_log_info("stun_timer_stop: %p\n", timer);
+
     // Same implementation as sip_timer_stop
     sip_timer_stop(timer);
     return 0;  // Always return success

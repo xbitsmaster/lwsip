@@ -45,6 +45,7 @@ extern "C" {
 #define LWS_ERR_SIP_SEND            0x80020008
 #define LWS_ERR_SIP_BYE             0x80020009
 #define LWS_ERR_SIP_NO_DIALOG       0x8002000A
+#define LWS_ERR_SIP_MESSAGE         0x8002000B
 
 // RTP errors (0x8003xxxx)
 #define LWS_ERR_RTP_CREATE          0x80030001

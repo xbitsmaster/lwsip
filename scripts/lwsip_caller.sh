@@ -3,13 +3,15 @@
 # 用法: ./lwsip_caller.sh
 
 LWSIP_CLI="../build/bin/lwsip-cli"
+AUDIO_FILE="../media/test_audio_pcmu.wav"
 
 echo "========================================"
 echo "lwsip 主叫方 (Caller) - 1001 -> 1000"
 echo "========================================"
 echo "SIP 服务器:  198.19.249.149:5060"
 echo "本地扩展号:  1001"
-echo "呼叫目标:    1000"
+echo "呼叫目标:    sip:1000@198.19.249.149"
+echo "音频文件:    $AUDIO_FILE"
 echo "========================================"
 echo ""
 
@@ -20,6 +22,17 @@ if [ ! -f "$LWSIP_CLI" ]; then
     exit 1
 fi
 
-# 运行lwsip-cli
-# 用法: lwsip-cli <server> <username> [password]
-"$LWSIP_CLI" 198.19.249.149:5060 1001 1234
+# 检查音频文件是否存在
+if [ ! -f "$AUDIO_FILE" ]; then
+    echo "警告: 音频文件不存在: $AUDIO_FILE"
+    echo "将不播放音频文件"
+    AUDIO_PARAM=""
+else
+    AUDIO_PARAM="-f $AUDIO_FILE"
+fi
+
+# 运行lwsip-cli，自动呼叫 sip:1000@198.19.249.149
+# 参数说明:
+#   -c: 自动呼叫的 URI
+#   -f: 播放的音频文件
+"$LWSIP_CLI" $AUDIO_PARAM -c "sip:1000@198.19.249.149" 198.19.249.149:5060 1001 1234

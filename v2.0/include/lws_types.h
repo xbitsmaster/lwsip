@@ -20,9 +20,19 @@ extern "C" {
 #define LWS_MAX_HOST_LEN        256
 #define LWS_MAX_USERNAME_LEN    64
 #define LWS_MAX_PASSWORD_LEN    64
-#define LWS_MAX_DISPLAY_NAME    128
+#define LWS_MAX_NICKNAME_LEN    128
 #define LWS_MAX_URI_LEN         512
 #define LWS_MAX_SDP_LEN         4096
+
+// Path and name length constants
+#define LWS_MAX_PATH_LEN        256
+#define LWS_MAX_DEVICE_NAME_LEN 128
+#define LWS_MAX_CLIENT_ID_LEN   128
+#define LWS_MAX_TOPIC_LEN       256
+
+// TLS certificate/key buffer size limits (for memory mode)
+#define LWS_MAX_TLS_CERT_SIZE   (8 * 1024)   // 8KB for certificates
+#define LWS_MAX_TLS_KEY_SIZE    (4 * 1024)   // 4KB for private keys
 
 /* ============================================================
  * Audio/Video Codec Enums
@@ -98,7 +108,6 @@ typedef enum {
 typedef enum {
     LWS_TRANSPORT_UDP = 0,      // Standard UDP (default)
     LWS_TRANSPORT_TCP,          // Standard TCP
-    LWS_TRANSPORT_TLS,          // TLS over TCP
     LWS_TRANSPORT_MQTT,         // MQTT pub/sub (for IoT)
     LWS_TRANSPORT_CUSTOM,       // Custom transport
 } lws_transport_type_t;
@@ -111,26 +120,32 @@ typedef struct {
     // User credentials
     char username[LWS_MAX_USERNAME_LEN];
     char password[LWS_MAX_PASSWORD_LEN];
-    char display_name[LWS_MAX_DISPLAY_NAME];
+    char nickname[LWS_MAX_NICKNAME_LEN];
 
     // Local settings
     uint16_t local_port;
     int expires;  // Registration expires (seconds), renamed from register_expires
-    int use_tcp;  // Deprecated: use transport_type instead
 
     // Transport settings (NEW)
     lws_transport_type_t transport_type;  // Transport type
     int enable_tls;                       // Enable TLS encryption
-    char tls_ca_file[256];                // CA certificate file for TLS
-    char tls_cert_file[256];              // Client certificate file
-    char tls_key_file[256];               // Client private key file
 
+    // TLS configuration: memory-based (for embedded systems without filesystem)
+    const void* tls_ca;               // CA certificate in memory
+    int tls_ca_size;                  // CA certificate size
+    const void* tls_cert;             // Client certificate in memory
+    int tls_cert_size;                // Client certificate size
+    const void* tls_key;              // Client private key in memory
+    int tls_key_size;                 // Client private key size
+
+#if defined(LWS_ENABLE_TRANSPORT_MQTT)
     // MQTT transport settings (when transport_type == LWS_TRANSPORT_MQTT)
     char mqtt_broker_host[LWS_MAX_HOST_LEN];
     uint16_t mqtt_broker_port;
-    char mqtt_client_id[128];
-    char mqtt_pub_topic[256];  // Topic to publish SIP messages
-    char mqtt_sub_topic[256];  // Topic to subscribe for receiving
+    char mqtt_client_id[LWS_MAX_CLIENT_ID_LEN];
+    char mqtt_pub_topic[LWS_MAX_TOPIC_LEN];  // Topic to publish SIP messages
+    char mqtt_sub_topic[LWS_MAX_TOPIC_LEN];  // Topic to subscribe for receiving
+#endif
 
     // Media settings
     int enable_audio;
@@ -141,21 +156,27 @@ typedef struct {
     // Media backend settings (NEW)
     lws_media_backend_t media_backend_type;  // Media backend type
 
+#if defined(LWS_ENABLE_MEDIA_FILE)
     // File backend settings
-    char audio_input_file[256];   // Input audio file (for playback)
-    char audio_output_file[256];  // Output audio file (for recording)
-    char video_input_file[256];   // Input video file
-    char video_output_file[256];  // Output video file
+    char audio_input_file[LWS_MAX_PATH_LEN];   // Input audio file (for playback)
+    char audio_output_file[LWS_MAX_PATH_LEN];  // Output audio file (for recording)
+    char video_input_file[LWS_MAX_PATH_LEN];   // Input video file
+    char video_output_file[LWS_MAX_PATH_LEN];  // Output video file
+#endif
 
+#if defined(LWS_ENABLE_MEDIA_MEMORY)
     // Memory backend settings
     void* audio_input_buffer;     // Audio input buffer
     int audio_input_buffer_size;
     void* audio_output_buffer;    // Audio output buffer
     int audio_output_buffer_size;
+#endif
 
+#if defined(LWS_ENABLE_MEDIA_DEVICE)
     // Device backend settings
-    char audio_device_name[128];  // Audio device name (e.g., "default", "hw:0,0")
-    char video_device_name[128];  // Video device name (e.g., "/dev/video0")
+    char audio_device_name[LWS_MAX_DEVICE_NAME_LEN];  // Audio device name (e.g., "default", "hw:0,0")
+    char video_device_name[LWS_MAX_DEVICE_NAME_LEN];  // Video device name (e.g., "/dev/video0")
+#endif
 
     // RTP settings
     uint16_t audio_rtp_port;      // Local RTP port for audio (0=auto)
@@ -185,10 +206,21 @@ typedef struct {
     // ICE timing settings
     int ice_gather_timeout;       // Candidate gathering timeout in ms (default: 3000)
     int ice_connect_timeout;      // ICE connectivity check timeout in ms (default: 5000)
-
-    // Threading settings
-    int use_worker_thread;        // Use background worker thread (0=manual polling, 1=auto)
 } lws_config_t;
+
+/* ============================================================
+ * Forward Declarations for Opaque Types
+ * ============================================================ */
+
+/**
+ * Forward declarations for opaque structures
+ * The actual structure definitions are in internal headers or source files
+ */
+struct lws_agent;
+typedef struct lws_agent lws_agent_t;
+
+struct lws_session;
+typedef struct lws_session lws_session_t;
 
 #ifdef __cplusplus
 }
