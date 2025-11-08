@@ -9,6 +9,7 @@
  * - Agent internally manages transport layer
  */
 
+#include "../include/lwsip.h"
 #include "../include/lws_agent.h"
 #include "../osal/include/lws_mem.h"
 #include "../osal/include/lws_thread.h"
@@ -52,29 +53,28 @@ static void agent_on_register_result(lws_agent_t* agent, int success,
 {
     printf("[CALLER_AGENT] Registration result: %s (code=%d, reason=%s)\n",
            success ? "SUCCESS" : "FAILED", status_code, reason_phrase);
+    fflush(stdout);
 
     if (success) {
         g_ctx.registered = 1;
 
-        // Make call after successful registration (with minimal SDP)
+        // Make call after successful registration
+        // Note: SDP will be generated asynchronously by media session layer
         printf("[CALLER] Making call to %s...\n", CALLEE_URI);
+        fflush(stdout);
 
-        const char* sdp =
-            "v=0\r\n"
-            "o=- 0 0 IN IP4 127.0.0.1\r\n"
-            "s=-\r\n"
-            "c=IN IP4 127.0.0.1\r\n"
-            "t=0 0\r\n";
-
-        g_ctx.dialog = lws_agent_make_call(agent, CALLEE_URI, sdp);
+        g_ctx.dialog = lws_agent_make_call(agent, CALLEE_URI);
         if (g_ctx.dialog) {
-            printf("[CALLER] Call initiated successfully\n");
+            printf("[CALLER] Call initiated successfully (waiting for SDP)\n");
+            fflush(stdout);
             g_ctx.call_initiated = 1;
         } else {
             printf("[CALLER] ERROR: Failed to initiate call\n");
+            fflush(stdout);
         }
     } else {
         printf("[CALLER] ERROR: Registration failed, cannot make call\n");
+        fflush(stdout);
     }
 
     (void)agent;
@@ -165,9 +165,11 @@ int main(void)
     printf("Callee: %s\n", CALLEE_URI);
     printf("Note: Only SIP protocol testing (no media)\n");
     printf("========================================\n\n");
+    fflush(stdout);
 
     // Initialize SIP agent
     printf("[1/3] Initializing SIP agent...\n");
+    fflush(stdout);
     lws_agent_config_t agent_cfg;
     memset(&agent_cfg, 0, sizeof(agent_cfg));
     snprintf(agent_cfg.username, sizeof(agent_cfg.username), "%s", USERNAME);
@@ -187,23 +189,29 @@ int main(void)
     g_ctx.agent = lws_agent_create(&agent_cfg, &agent_handler);
     if (!g_ctx.agent) {
         printf("ERROR: Failed to create SIP agent\n");
+        fflush(stdout);
         return 1;
     }
     printf("  SIP agent created successfully\n\n");
+    fflush(stdout);
 
     // Start event loop thread
     printf("[2/3] Starting event loop thread...\n");
+    fflush(stdout);
     g_ctx.running = 1;
     g_ctx.loop_thread = lws_thread_create(event_loop_thread, NULL);
     if (!g_ctx.loop_thread) {
         printf("ERROR: Failed to create event loop thread\n");
+        fflush(stdout);
         lws_agent_destroy(g_ctx.agent);
         return 1;
     }
     printf("  Event loop thread started\n\n");
+    fflush(stdout);
 
     // Start registration
     printf("[3/3] Starting SIP registration...\n");
+    fflush(stdout);
     if (lws_agent_start(g_ctx.agent) != 0) {
         printf("ERROR: Failed to start registration\n");
         g_ctx.running = 0;
@@ -212,9 +220,11 @@ int main(void)
         return 1;
     }
     printf("  Registration started\n\n");
+    fflush(stdout);
 
     // Wait for call establishment
     printf("Waiting for call establishment...\n");
+    fflush(stdout);
     int wait_count = 0;
     while (!g_ctx.call_initiated && wait_count < 100) {
         lws_thread_sleep(100);  // 100ms

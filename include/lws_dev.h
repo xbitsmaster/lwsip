@@ -381,6 +381,7 @@ void lws_dev_init_video_capture_config(lws_dev_config_t* config);
  */
 void lws_dev_init_video_display_config(lws_dev_config_t* config);
 
+#ifdef DEV_FILE
 /**
  * @brief 初始化文件读取配置
  * @param config 配置结构体
@@ -394,6 +395,7 @@ void lws_dev_init_file_reader_config(lws_dev_config_t* config, const char* file_
  * @param file_path 文件路径
  */
 void lws_dev_init_file_writer_config(lws_dev_config_t* config, const char* file_path);
+#endif /* DEV_FILE */
 
 /**
  * @brief 计算音频帧大小（字节）

@@ -16,9 +16,11 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "lws_defs.h"
-#include "lws_ice.h"
-#include "lws_rtp.h"
 #include "lws_dev.h"
+
+/* Forward declarations for types (we use librtp/libice directly) */
+typedef struct lws_rtp_t lws_rtp_t;
+typedef struct lws_ice_t lws_ice_t;
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +29,48 @@ extern "C" {
 /* ========================================
  * 类型定义
  * ======================================== */
+
+/**
+ * @brief RTP编解码类型
+ */
+typedef enum {
+    LWS_RTP_PAYLOAD_PCMU = 0,       /**< G.711 μ-law */
+    LWS_RTP_PAYLOAD_PCMA = 8,       /**< G.711 A-law */
+    LWS_RTP_PAYLOAD_G722 = 9,       /**< G.722 */
+    LWS_RTP_PAYLOAD_L16_2 = 10,     /**< L16 stereo */
+    LWS_RTP_PAYLOAD_L16_1 = 11,     /**< L16 mono */
+    LWS_RTP_PAYLOAD_OPUS = 96,      /**< Opus (dynamic) */
+    LWS_RTP_PAYLOAD_H264 = 97,      /**< H.264 (dynamic) */
+    LWS_RTP_PAYLOAD_H265 = 98,      /**< H.265 (dynamic) */
+    LWS_RTP_PAYLOAD_VP8 = 99,       /**< VP8 (dynamic) */
+    LWS_RTP_PAYLOAD_VP9 = 100       /**< VP9 (dynamic) */
+} lws_rtp_payload_t;
+
+/**
+ * @brief RTP统计信息
+ */
+typedef struct {
+    /* 发送统计 */
+    uint64_t sent_packets;          /**< 发送的包数 */
+    uint64_t sent_bytes;            /**< 发送的字节数 */
+    uint32_t sent_timestamp;        /**< 最后发送的RTP时间戳 */
+
+    /* 接收统计 */
+    uint64_t recv_packets;          /**< 接收的包数 */
+    uint64_t recv_bytes;            /**< 接收的字节数 */
+    uint32_t recv_timestamp;        /**< 最后接收的RTP时间戳 */
+
+    /* 丢包统计 */
+    uint64_t lost_packets;          /**< 丢失的包数 */
+    double loss_rate;               /**< 丢包率（0.0-1.0） */
+
+    /* 抖动统计 */
+    uint32_t jitter;                /**< 抖动（RTP时间戳单位） */
+
+    /* RTCP统计 */
+    uint64_t rtcp_sent;             /**< 发送的RTCP包数 */
+    uint64_t rtcp_recv;             /**< 接收的RTCP包数 */
+} lws_rtp_stats_t;
 
 /**
  * @brief 会话状态
