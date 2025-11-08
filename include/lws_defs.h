@@ -115,6 +115,9 @@ extern "C" {
 #define LWS_DEFAULT_RECV_BUF    (64*1024)   /**< 默认接收缓冲区 */
 #define LWS_DEFAULT_SEND_BUF    (64*1024)   /**< 默认发送缓冲区 */
 
+#define LWS_TRANS_RECV_BUF_SIZE 4096        /**< Transport接收缓冲区 */
+#define LWS_TRANS_SEND_BUF_SIZE 4096        /**< Transport发送缓冲区 */
+
 /* ========================================
  * 超时设置
  * ======================================== */

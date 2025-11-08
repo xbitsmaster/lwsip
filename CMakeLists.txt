@@ -126,8 +126,9 @@ endif()
 
 # Optional: MQTT transport
 if(ENABLE_MQTT)
-    # TODO: Add MQTT transport source when implemented
-    # list(APPEND LWS_SOURCES src/lws_trans_mqtt.c)
+    list(APPEND LWS_SOURCES src/lws_trans_mqtt.c)
+    # Add lwIP MQTT include path
+    list(APPEND COMMON_INCLUDES ${CMAKE_SOURCE_DIR}/3rds/lwip/src/include)
 endif()
 
 # Platform-specific device backends

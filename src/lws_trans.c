@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -87,10 +88,14 @@ lws_trans_t* lws_trans_create(const lws_trans_config_t* config,
         case LWS_TRANS_TYPE_UDP:
             return lws_trans_udp_create(config, handler);
 
+#ifdef TRANS_MQTT
+        case LWS_TRANS_TYPE_MQTT:
+            return lws_trans_mqtt_create(config, handler);
+#endif
+
         case LWS_TRANS_TYPE_TCP_SERVER:
         case LWS_TRANS_TYPE_TCP_CLIENT:
         case LWS_TRANS_TYPE_TLS:
-        case LWS_TRANS_TYPE_MQTT:
             /* 未实现的传输类型 */
             return NULL;
 
@@ -221,4 +226,43 @@ int lws_addr_equals(const lws_addr_t* addr1, const lws_addr_t* addr2)
     }
 
     return (strcmp(addr1->ip, addr2->ip) == 0) && (addr1->port == addr2->port);
+}
+
+/* ========================================
+ * Config初始化辅助函数
+ * ======================================== */
+
+void lws_trans_init_mqtt_config(
+    lws_trans_config_t* config,
+    const char* broker,
+    uint16_t port,
+    const char* client_id)
+{
+    if (!config) {
+        return;
+    }
+
+    memset(config, 0, sizeof(*config));
+
+    config->type = LWS_TRANS_TYPE_MQTT;
+
+    /* MQTT配置 */
+    if (broker) {
+        strncpy(config->mqtt.broker, broker, sizeof(config->mqtt.broker) - 1);
+    }
+    config->mqtt.port = port > 0 ? port : LWS_DEFAULT_MQTT_PORT;
+
+    if (client_id) {
+        strncpy(config->mqtt.client_id, client_id, sizeof(config->mqtt.client_id) - 1);
+    } else {
+        /* 生成默认client ID */
+        snprintf(config->mqtt.client_id, sizeof(config->mqtt.client_id),
+                "lwsip_%lu", (unsigned long)time(NULL));
+    }
+
+    /* 默认topic前缀 */
+    strncpy(config->mqtt.topic_prefix, "lwsip", sizeof(config->mqtt.topic_prefix) - 1);
+
+    /* 通用配置 */
+    config->nonblock = 1;
 }
