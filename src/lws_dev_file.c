@@ -19,6 +19,8 @@
 #include "mp4-writer.h"
 #include "mov-reader.h"
 
+#ifdef DEV_FILE
+
 /* ========================================
  * 文件后端数据结构
  * ======================================== */
@@ -551,3 +553,21 @@ const lws_dev_ops_t lws_dev_file_ops = {
     .read_video = file_read_video,
     .write_video = file_write_video
 };
+
+#else /* !DEV_FILE */
+
+/* File device backend is disabled - provide stub implementation */
+const lws_dev_ops_t lws_dev_file_ops = {
+    .open = NULL,
+    .close = NULL,
+    .start = NULL,
+    .stop = NULL,
+    .read_audio = NULL,
+    .write_audio = NULL,
+    .get_audio_avail = NULL,
+    .flush_audio = NULL,
+    .read_video = NULL,
+    .write_video = NULL
+};
+
+#endif /* DEV_FILE */
