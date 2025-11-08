@@ -1,219 +1,258 @@
-# FreeSWITCH Docker 部署指南
+# FreeSWITCH 本地 Docker 部署
 
-## 概述
+本目录包含用于在本地环境部署 FreeSWITCH 的 Docker 脚本和配置文件。
 
-本目录包含在服务器 `198.19.249.149` 上使用Docker部署FreeSWITCH的配置文件和脚本。
+## 目录结构
 
-## 前提条件
-
-### 本地机器
-- SSH客户端
-- 已配置对目标服务器的SSH密钥访问
-
-### 目标服务器 (198.19.249.149)
-- Linux系统（推荐Ubuntu 20.04+或CentOS 7+）
-- root或sudo权限
-- Docker和docker-compose（脚本会自动安装）
-- 开放端口：
-  - 5060 (SIP TCP/UDP)
-  - 5080 (SIP TCP/UDP，备用)
-  - 16384-16394 (RTP UDP)
-  - 8021 (ESL管理端口，可选)
-
-## 快速部署
-
-### 方法1：自动部署脚本
-
-```bash
-cd /Users/konghan/ClaudeSpace/lwsip/freeswitch_deploy
-./deploy.sh
+```
+scripts/freeswitch/
+├── install.sh              # 安装脚本
+├── uninstall.sh            # 卸载脚本
+├── start.sh                # 启动脚本
+├── stop.sh                 # 停止脚本
+├── docker-compose.yml      # Docker Compose 配置
+├── config/                 # FreeSWITCH 配置目录
+│   └── directory/          # SIP 用户配置
+│       ├── 1000.xml        # 用户 1000
+│       ├── 1001.xml        # 用户 1001
+│       ├── 1002.xml        # 用户 1002
+│       └── 1003.xml        # 用户 1003
+└── README.md               # 本文档
 ```
 
-**注意**：部署前请修改 `deploy.sh` 中的以下变量：
-- `REMOTE_USER`: SSH用户名（默认为root）
-- 确认SSH密钥已配置
+## 前置要求
 
-### 方法2：手动部署
+- Docker (推荐 20.10+)
+- Docker Compose (推荐 v2.0+)
+- macOS / Linux 操作系统
 
-1. **上传文件到服务器**
+## 快速开始
+
+### 1. 安装
+
 ```bash
-scp -r freeswitch_deploy root@198.19.249.149:/opt/
+cd scripts/freeswitch
+./install.sh
 ```
 
-2. **登录服务器**
+安装脚本会执行以下操作：
+- 检查 Docker 环境
+- 验证配置文件
+- 拉取 FreeSWITCH Docker 镜像
+- 显示配置信息
+
+### 2. 启动服务
+
 ```bash
-ssh root@198.19.249.149
+./start.sh
 ```
 
-3. **安装Docker（如果未安装）**
+启动脚本会：
+- 启动 FreeSWITCH 容器
+- 等待服务就绪
+- 显示服务状态和使用信息
+
+### 3. 停止服务
+
 ```bash
-curl -fsSL https://get.docker.com | sh
-systemctl start docker
-systemctl enable docker
+./stop.sh
 ```
 
-4. **安装docker-compose**
+停止脚本会：
+- 检查当前运行状态
+- 显示活动连接和通话
+- 优雅停止容器（如有活动通话会提示确认）
+
+### 4. 卸载
+
 ```bash
-curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-chmod +x /usr/local/bin/docker-compose
+./uninstall.sh
 ```
 
-5. **启动FreeSWITCH**
+卸载脚本会：
+- 停止并删除容器
+- 删除 Docker volumes
+- 删除 Docker networks
+- 可选删除镜像
+
+## 服务配置
+
+### 网络配置
+
+- **服务器地址**: 127.0.0.1 (本地回环)
+- **SIP 端口**: 5060 (TCP/UDP)
+- **备用 SIP 端口**: 5080 (TCP/UDP)
+- **RTP 端口范围**: 16384-16394 (UDP)
+- **ESL 端口**: 8021 (TCP)
+
+### SIP 用户账号
+
+系统预配置了 4 个测试账号，密码均为 `1234`：
+
+| 账号 | SIP URI | 密码 | 描述 |
+|------|---------|------|------|
+| 1000 | sip:1000@127.0.0.1 | 1234 | Extension 1000 |
+| 1001 | sip:1001@127.0.0.1 | 1234 | Extension 1001 |
+| 1002 | sip:1002@127.0.0.1 | 1234 | Extension 1002 |
+| 1003 | sip:1003@127.0.0.1 | 1234 | Extension 1003 |
+
+## 使用示例
+
+### 查看容器日志
+
 ```bash
-cd /opt/freeswitch_deploy
-docker-compose up -d
+cd scripts/freeswitch
+docker compose logs -f
 ```
 
-6. **查看日志**
+### 进入 FreeSWITCH 控制台
+
 ```bash
-docker-compose logs -f freeswitch
+docker exec -it freeswitch-local fs_cli
 ```
 
-## 测试用户
+控制台常用命令：
+- `status` - 查看服务状态
+- `sofia status` - 查看 SIP 配置
+- `show registrations` - 查看注册用户
+- `show channels` - 查看活动通话
+- `version` - 查看版本信息
 
-部署后，FreeSWITCH会预配置以下测试用户：
+### 查看 SIP 注册
 
-| 用户名 | 密码 | 用途 |
-|--------|------|------|
-| 1000 | 1234 | Lwsip测试 |
-| 1001 | 1234 | PJSUA测试 |
-| 1002 | 1234 | 备用测试 |
-
-## 使用方法
-
-### 注册到FreeSWITCH
-
-**PJSUA示例**：
 ```bash
-./pjsua-aarch64-apple-darwin24.6.0 \
-  --id sip:1001@198.19.249.149 \
-  --registrar sip:198.19.249.149 \
+docker exec freeswitch-local fs_cli -x "show registrations"
+```
+
+### 查看活动通话
+
+```bash
+docker exec freeswitch-local fs_cli -x "show channels"
+```
+
+### 测试 SIP 注册（使用 pjsua）
+
+```bash
+# 从项目根目录运行
+./3rds/pjsip/pjsip-apps/bin/pjsua-aarch64-apple-darwin24.6.0 \
+  --id sip:1000@127.0.0.1 \
+  --registrar sip:127.0.0.1 \
+  --realm "*" \
+  --username 1000 \
+  --password 1234 \
+  --null-audio
+```
+
+### 测试 SIP 呼叫
+
+**终端 1 - 被叫方 (1001)**:
+```bash
+./3rds/pjsip/pjsip-apps/bin/pjsua-aarch64-apple-darwin24.6.0 \
+  --id sip:1001@127.0.0.1 \
+  --registrar sip:127.0.0.1 \
   --realm "*" \
   --username 1001 \
-  --password 1234
+  --password 1234 \
+  --null-audio \
+  --auto-answer 200
 ```
 
-**Lwsip配置**：
-```c
-// 在lwsip中配置
-server: 198.19.249.149:5060
-username: 1000
-password: 1234
-```
-
-### 测试呼叫
-
-从PJSUA呼叫Lwsip：
-```
-# 在PJSUA控制台
-m             # 进入呼叫菜单
-sip:1000@198.19.249.149  # 呼叫1000
-```
-
-## 管理命令
-
-### 查看容器状态
+**终端 2 - 主叫方 (1000)**:
 ```bash
-ssh root@198.19.249.149 'cd /opt/freeswitch && docker-compose ps'
-```
+./3rds/pjsip/pjsip-apps/bin/pjsua-aarch64-apple-darwin24.6.0 \
+  --id sip:1000@127.0.0.1 \
+  --registrar sip:127.0.0.1 \
+  --realm "*" \
+  --username 1000 \
+  --password 1234 \
+  --null-audio
 
-### 查看实时日志
-```bash
-ssh root@198.19.249.149 'cd /opt/freeswitch && docker-compose logs -f'
-```
-
-### 重启FreeSWITCH
-```bash
-ssh root@198.19.249.149 'cd /opt/freeswitch && docker-compose restart'
-```
-
-### 停止FreeSWITCH
-```bash
-ssh root@198.19.249.149 'cd /opt/freeswitch && docker-compose down'
-```
-
-### 进入FreeSWITCH控制台
-```bash
-ssh root@198.19.249.149
-docker exec -it freeswitch fs_cli
-```
-
-FreeSWITCH CLI常用命令：
-```
-sofia status                    # 查看SIP状态
-sofia status profile internal   # 查看internal profile
-show registrations              # 查看已注册用户
-show channels                   # 查看当前通话
-show calls                      # 查看呼叫列表
+# 在 pjsua 提示符下输入
+> call sip:1001@127.0.0.1
 ```
 
 ## 故障排查
 
-### 无法连接SIP服务器
+### 容器无法启动
 
-1. **检查防火墙**
+1. 检查 Docker 服务是否运行：
+   ```bash
+   docker info
+   ```
+
+2. 查看容器日志：
+   ```bash
+   docker compose logs
+   ```
+
+3. 检查端口占用：
+   ```bash
+   lsof -i :5060
+   ```
+
+### SIP 注册失败
+
+1. 确认 FreeSWITCH 服务正在运行：
+   ```bash
+   docker exec freeswitch-local fs_cli -x "status"
+   ```
+
+2. 检查 SIP profiles：
+   ```bash
+   docker exec freeswitch-local fs_cli -x "sofia status"
+   ```
+
+3. 查看日志中的错误信息：
+   ```bash
+   docker compose logs -f | grep -i error
+   ```
+
+### 重置环境
+
+如果遇到配置问题，可以完全重置：
+
 ```bash
-# 在服务器上
-firewall-cmd --list-ports  # CentOS
-ufw status                  # Ubuntu
+# 1. 卸载现有部署
+./uninstall.sh
 
-# 开放端口（如果需要）
-firewall-cmd --add-port=5060/tcp --permanent
-firewall-cmd --add-port=5060/udp --permanent
-firewall-cmd --add-port=16384-16394/udp --permanent
-firewall-cmd --reload
+# 2. 清理所有相关资源
+docker system prune -a
+
+# 3. 重新安装
+./install.sh
+./start.sh
 ```
 
-2. **检查容器状态**
-```bash
-docker-compose ps
-docker-compose logs freeswitch | tail -100
-```
+## 技术细节
 
-3. **检查端口监听**
-```bash
-netstat -tunlp | grep 5060
-```
+### Docker 镜像
 
-### 注册失败
+- **镜像**: safarov/freeswitch:latest
+- **FreeSWITCH 版本**: 1.10.x
 
-1. 检查用户名和密码是否正确
-2. 查看FreeSWITCH日志：`docker-compose logs -f freeswitch`
-3. 确认realm设置为 `*` 或正确的域名
+### Docker Volumes
 
-### 无音频
+- `freeswitch-sounds` - 音频文件
+- `freeswitch-recordings` - 录音文件
+- `freeswitch-logs` - 日志文件
 
-1. 检查RTP端口是否开放（16384-16394）
-2. 确认防火墙规则
-3. 检查NAT配置
+### 配置挂载
 
-## 网络架构
+- `./config/directory` -> `/etc/freeswitch/directory` (只读)
 
-```
-[本地Lwsip/PJSUA]
-       |
-       | SIP (5060)
-       | RTP (16384-16394)
-       v
-[198.19.249.149:FreeSWITCH Docker]
-```
+## 注意事项
 
-## 配置文件说明
+1. **本地部署**: 所有服务绑定到 127.0.0.1，仅本机可访问
+2. **测试用途**: 默认密码为弱密码 (1234)，不建议生产使用
+3. **端口限制**: RTP 端口范围较小 (16384-16394)，支持约 5 个并发通话
+4. **性能**: 容器资源受 Docker 限制，不适合高负载场景
 
-- `docker-compose.yml`: Docker编排配置
-- `config/directory/*.xml`: SIP用户配置
-- `config/sip_profiles/`: SIP配置文件（使用默认配置）
-- `config/vars.xml`: 全局变量配置（可选）
+## 相关文档
 
-## 安全建议
+- [FreeSWITCH 官方文档](https://freeswitch.org/confluence/)
+- [Docker Compose 文档](https://docs.docker.com/compose/)
+- [PJSIP 文档](https://docs.pjsip.org/)
 
-1. 修改默认密码（在`config/directory/*.xml`中）
-2. 限制SSH访问IP
-3. 配置防火墙规则
-4. 启用TLS/SRTP（生产环境）
-5. 定期更新FreeSWITCH镜像
+## 许可证
 
-## 参考资料
-
-- [FreeSWITCH官方文档](https://freeswitch.org/confluence/)
-- [Docker Hub - SignalWire FreeSWITCH](https://hub.docker.com/r/signalwire/freeswitch)
+本脚本遵循项目根目录的许可证。FreeSWITCH 遵循 MPL 1.1 许可证。
