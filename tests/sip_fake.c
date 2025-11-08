@@ -72,6 +72,69 @@ typedef struct {
 static registration_t g_registrations[MAX_REGISTRATIONS];
 
 /* ========================================
+ * Call Routing Table (for routing responses back to callers)
+ * ======================================== */
+
+#define MAX_CALL_ID_LEN 256
+
+typedef struct {
+    char call_id[MAX_CALL_ID_LEN];       /**< Call-ID */
+    char ip[INET_ADDRSTRLEN];             /**< Source IP address */
+    uint16_t port;                        /**< Source port */
+    int active;                           /**< 1 if active, 0 if expired */
+} call_route_t;
+
+static call_route_t g_call_routes[MAX_REGISTRATIONS];
+
+/**
+ * @brief Store call route for response routing
+ */
+static void store_call_route(const char* call_id, const char* ip, uint16_t port)
+{
+    if (!call_id || !ip) return;
+
+    /* Find existing or free slot */
+    call_route_t* slot = NULL;
+    for (int i = 0; i < MAX_REGISTRATIONS; i++) {
+        if (g_call_routes[i].active && strcmp(g_call_routes[i].call_id, call_id) == 0) {
+            slot = &g_call_routes[i];
+            break;
+        }
+        if (!slot && !g_call_routes[i].active) {
+            slot = &g_call_routes[i];
+        }
+    }
+
+    if (!slot) {
+        /* Table full, use first slot */
+        slot = &g_call_routes[0];
+    }
+
+    strncpy(slot->call_id, call_id, sizeof(slot->call_id) - 1);
+    strncpy(slot->ip, ip, sizeof(slot->ip) - 1);
+    slot->port = port;
+    slot->active = 1;
+
+    printf("[SIP_FAKE]   Stored call route: %s -> %s:%u\n", call_id, ip, port);
+}
+
+/**
+ * @brief Lookup call route for response routing
+ */
+static call_route_t* find_call_route(const char* call_id)
+{
+    if (!call_id) return NULL;
+
+    for (int i = 0; i < MAX_REGISTRATIONS; i++) {
+        if (g_call_routes[i].active && strcmp(g_call_routes[i].call_id, call_id) == 0) {
+            return &g_call_routes[i];
+        }
+    }
+
+    return NULL;
+}
+
+/* ========================================
  * Helper Functions - String Parsing
  * ======================================== */
 
@@ -756,6 +819,12 @@ static void handle_invite(
     printf("[SIP_FAKE]   Routing INVITE to %s (%s:%u)\n",
            target_username, target->ip, target->port);
 
+    // Store call route for response routing (caller source address)
+    char client_ip[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &client_addr->sin_addr, client_ip, sizeof(client_ip));
+    uint16_t client_port = ntohs(client_addr->sin_port);
+    store_call_route(call_id, client_ip, client_port);
+
     // Forward INVITE to target
     struct sockaddr_in target_addr;
     memset(&target_addr, 0, sizeof(target_addr));
@@ -883,6 +952,8 @@ static void handle_bye(
 
 /**
  * @brief Handle SIP response (200 OK, etc.)
+ *
+ * RFC 3261: Responses MUST be sent to the address in the top Via header
  */
 static void handle_response(
     int sock,
@@ -891,37 +962,33 @@ static void handle_response(
 {
     printf("[SIP_FAKE] Handling SIP response\n");
 
-    // Extract To header to find original sender
-    const char* to = extract_to(sip_msg);
-    if (!to) {
-        printf("[SIP_FAKE]   ERROR: Missing To header\n");
+    // Extract Call-ID to find where to send response
+    const char* call_id = extract_call_id(sip_msg);
+    if (!call_id) {
+        printf("[SIP_FAKE]   ERROR: Missing Call-ID header\n");
         return;
     }
 
-    // Extract target username (original sender)
-    char target_username[MAX_USERNAME_LEN];
-    if (extract_username(to, target_username, sizeof(target_username)) != 0) {
-        printf("[SIP_FAKE]   ERROR: Failed to extract target username\n");
+    // Find stored call route
+    call_route_t* route = find_call_route(call_id);
+    if (!route) {
+        printf("[SIP_FAKE]   WARNING: No route found for Call-ID: %s\n", call_id);
+        printf("[SIP_FAKE]   Dropping response (no route to caller)\n");
         return;
     }
 
-    // Find target registration
-    registration_t* target = find_registration(target_username);
-    if (!target) {
-        printf("[SIP_FAKE]   WARNING: Target %s not registered, dropping response\n",
-               target_username);
-        return;
-    }
+    printf("[SIP_FAKE]   Routing response to %s:%u (from call route table)\n",
+           route->ip, route->port);
 
-    printf("[SIP_FAKE]   Routing response to %s (%s:%u)\n",
-           target_username, target->ip, target->port);
-
-    // Forward response to target
+    // Forward response to stored route
     struct sockaddr_in target_addr;
     memset(&target_addr, 0, sizeof(target_addr));
     target_addr.sin_family = AF_INET;
-    target_addr.sin_port = htons(target->port);
-    inet_pton(AF_INET, target->ip, &target_addr.sin_addr);
+    target_addr.sin_port = htons(route->port);
+    if (inet_pton(AF_INET, route->ip, &target_addr.sin_addr) <= 0) {
+        printf("[SIP_FAKE]   ERROR: Invalid IP address: %s\n", route->ip);
+        return;
+    }
 
     if (sendto(sock, sip_msg, strlen(sip_msg), 0,
                (struct sockaddr*)&target_addr, sizeof(target_addr)) < 0) {
@@ -929,7 +996,7 @@ static void handle_response(
         return;
     }
 
-    printf("[SIP_FAKE]   Forwarded response to %s\n", target_username);
+    printf("[SIP_FAKE]   Forwarded response to %s:%u\n", route->ip, route->port);
 
     (void)client_addr;
 }
