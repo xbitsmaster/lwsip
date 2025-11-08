@@ -172,16 +172,22 @@ target_link_libraries(callee
 add_executable(lwsip_agent_test
     lwsip_agent_test.c
     lwsip_agent_stub.c
+    trans_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
+    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mutex.c
+    ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_thread.c
 )
 
 target_include_directories(lwsip_agent_test PRIVATE
     ${TEST_INCLUDES}
 )
 
-# Link minimal dependencies for unit tests
+# Link libsip and dependencies (no longer stub)
 target_link_libraries(lwsip_agent_test
+    ${LIB_SIP}
+    ${LIB_HTTP}
+    ${LIB_SDK}
     pthread
 )
 

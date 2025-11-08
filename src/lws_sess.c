@@ -200,12 +200,12 @@ static int payload_clock_rate(lws_rtp_payload_t payload)
 static int on_ice_send(void* param, int protocol, const struct sockaddr* local,
                        const struct sockaddr* remote, const void* data, int bytes)
 {
-    lws_sess_t* sess = (lws_sess_t*)param;
-    (void)protocol;
-    (void)local;
-    (void)remote;
-    (void)data;
-    (void)bytes;
+    LWS_UNUSED(param);
+    LWS_UNUSED(protocol);
+    LWS_UNUSED(local);
+    LWS_UNUSED(remote);
+    LWS_UNUSED(data);
+    LWS_UNUSED(bytes);
 
     /* TODO: Send data through transport layer (lws_trans) */
     /* For now, we just log it */
@@ -242,8 +242,9 @@ static void on_ice_data(void* param, uint8_t stream, uint16_t component,
 static void on_ice_gather(void* param, int code)
 {
     lws_sess_t* sess = (lws_sess_t*)param;
+    LWS_UNUSED(code);
 
-    lws_log_info("[SESS] ICE gathering done: code=%d", code);
+    lws_log_info("[SESS] ICE gathering done");
 
     sess->ice_gathering_done = 1;
     change_state(sess, LWS_SESS_STATE_GATHERED);
@@ -287,11 +288,10 @@ static void on_ice_connected(void* param, uint64_t flags, uint64_t mask)
  */
 static void on_rtcp_message(void* param, const struct rtcp_msg_t* msg)
 {
-    lws_sess_t* sess = (lws_sess_t*)param;
-    (void)msg;
+    LWS_UNUSED(param);
+    LWS_UNUSED(msg);
 
-    lws_log_debug("[SESS] RTCP message received: type=%d, ssrc=%u",
-                  msg->type, msg->ssrc);
+    lws_log_debug("[SESS] RTCP message received");
 }
 
 /**
@@ -319,9 +319,10 @@ static int rtp_packet(void* param, const void *packet, int bytes,
                       uint32_t timestamp, int flags)
 {
     lws_sess_t* sess = (lws_sess_t*)param;
+    LWS_UNUSED(flags);
 
-    lws_log_debug("[SESS] RTP packet decoded: %d bytes, ts=%u, flags=0x%x",
-                  bytes, timestamp, flags);
+    lws_log_debug("[SESS] RTP packet decoded: %d bytes, ts=%u",
+                  bytes, timestamp);
 
     /* Write to playback device */
     if (sess->config.audio_playback_dev) {
@@ -705,6 +706,7 @@ int lws_sess_loop(lws_sess_t* sess, int timeout_ms)
 
             /* Get encoded RTP packets and send through ICE */
             uint8_t rtp_packet[LWS_SESS_RTP_MTU];
+            LWS_UNUSED(rtp_packet);
             /* TODO: Get packets from encoder queue */
 
             /* Update timestamp */

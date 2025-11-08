@@ -1,367 +1,398 @@
-# lwsip - Lightweight SIP Stack for RTOS
+# lwsip - 轻量级 SIP 协议栈（RTOS）
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20RTOS-lightgrey.svg)](README.md)
+[![Version](https://img.shields.io/badge/version-3.0.2-green.svg)](CHANGELOG.md)
 
-中文版 | **[English](../README.md)**
+**中文版** | **[English](../README.md)**
 
-轻量级SIP客户端协议栈，专为嵌入式系统和RTOS设计。
+面向生产环境的轻量级 SIP 用户代理库，专为嵌入式系统和 RTOS 环境设计。
 
-## 特性
+## 🎯 核心特性
 
-- ✅ **完整的SIP UAC功能**: REGISTER, INVITE, BYE, CANCEL, UNREGISTER
-- ✅ **RTP/RTCP媒体传输**: 支持音频和视频流
-- ✅ **ICE NAT穿透**: 集成STUN/TURN支持
-- ✅ **灵活的传输层**: TCP/UDP, MQTT等可扩展传输方式
-- ✅ **跨平台抽象**: 基于OSAL，支持Linux/macOS/RTOS
-- ✅ **Worker线程支持**: 可选的后台事件处理
-- ✅ **零拷贝设计**: 高效的媒体数据处理
-- ✅ **模块化架构**: SIP/RTP/Media层次清晰分离
+- ✅ **完整的 SIP 客户端**: REGISTER、INVITE、BYE、CANCEL，完整状态机
+- ✅ **音视频支持**: RTP/RTCP 媒体传输，支持多种编解码器
+- ✅ **NAT 穿透**: 内置 ICE/STUN 支持，确保稳定连接
+- ✅ **多种传输**: UDP、TCP、TLS 和 MQTT（适用于物联网场景）
+- ✅ **设备抽象**: 文件、麦克风、扬声器后端，即插即用设计
+- ✅ **RTOS 就绪**: 基于 OSAL，支持 Linux/macOS/FreeRTOS/Zephyr
+- ✅ **零内部线程**: 应用驱动的事件循环，完全控制
+- ✅ **模块化架构**: 清晰的五层设计，职责明确
+- ✅ **生产环境测试**: 与 Asterisk、FreeSWITCH 等互通
 
-## 快速开始
+## 📚 文档
 
-### 依赖
+- [快速入门指南](quick-start.md) - 5 分钟快速上手
+- [架构概览](arch-v3.0.md) - 理解设计
+- [API 参考](api-reference.md) - 完整 API 文档
+- [CLI 工具指南](../cmd/README.md) - 命令行工具使用
+- [OSAL 指南](../osal/README.md) - 平台抽象层
 
-- GCC/Clang编译器
-- CMake 3.10+
-- pthread库（Linux/macOS）
-- 第三方库（已包含在3rds目录）：
-  - [media-server](https://github.com/ireader/media-server) - SIP/RTP协议实现
-  - [sdk](https://github.com/ireader/sdk) - 基础SDK工具
-  - [avcodec](https://github.com/ireader/avcodec) - 音视频编解码
-  - [lwip](https://github.com/lwip-tcpip/lwip) - TCP/IP协议栈（可选）
-  - [mbedtls](https://github.com/Mbed-TLS/mbedtls) - TLS/加密支持（可选）
+## 🚀 快速开始
 
-### 构建
+### 从源码构建
 
 ```bash
-# 1. 克隆项目
-git clone <repository-url>
+# 克隆仓库
+git clone https://github.com/your-org/lwsip.git
 cd lwsip
 
-# 2. 构建（使用脚本）
-./build.sh
+# 构建第三方库
+cd 3rds
+./build_libs.sh
+cd ..
 
-# 3. 或手动构建
+# 构建 lwsip
 mkdir -p build && cd build
 cmake ..
-make
+make -j4
 
-# 构建产物
-# - 静态库: build/lib/liblwsip.a
-# - CLI工具: build/bin/lwsip-cli
+# 输出:
+# - 库文件: build/lib/liblwsip.a
+# - CLI 工具: build/bin/lwsip-cli
+# - 测试: build/tests/
 ```
 
-### 清理
+### 基本使用示例
+
+```c
+#include "lwsip.h"
+
+/* 1. 初始化库 */
+lwsip_init();
+
+/* 2. 配置 SIP 代理 */
+lws_agent_config_t config;
+lws_agent_init_default_config(&config, "1001", "secret", "sip.example.com", NULL);
+
+lws_agent_handler_t handler = {
+    .on_register_result = on_register,
+    .on_incoming_call = on_incoming_call,
+    .on_dialog_state_changed = on_call_state,
+};
+
+/* 3. 创建 SIP 代理 */
+lws_agent_t* agent = lws_agent_create(&config, &handler);
+
+/* 4. 启动注册 */
+lws_agent_start(agent);
+
+/* 5. 事件循环 */
+while (running) {
+    lws_agent_loop(agent, 100);  /* 100ms 超时 */
+}
+
+/* 6. 清理 */
+lws_agent_stop(agent);
+lws_agent_destroy(agent);
+lwsip_cleanup();
+```
+
+### 发起呼叫
+
+```c
+/* 创建媒体会话 */
+lws_sess_config_t sess_config;
+lws_sess_init_audio_config(&sess_config, "stun.example.com", LWS_RTP_PAYLOAD_PCMA);
+sess_config.audio_capture_dev = audio_capture;
+sess_config.audio_playback_dev = audio_playback;
+
+lws_sess_t* sess = lws_sess_create(&sess_config, &sess_handler);
+
+/* 发起呼叫 */
+lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@sip.example.com");
+
+/* 在回调中处理，当媒体就绪时 */
+void on_dialog_state_changed(lws_agent_t* agent, lws_dialog_t* dialog,
+                             lws_dialog_state_t old_state, lws_dialog_state_t new_state,
+                             void* userdata) {
+    if (new_state == LWS_DIALOG_STATE_CONFIRMED) {
+        printf("呼叫已连接！\n");
+    }
+}
+```
+
+## 🏗️ 架构
+
+lwsip 使用清晰的 **五层架构**：
+
+```
+┌─────────────────────────────────────────┐
+│         应用层 (Application)            │  您的 SIP 应用
+├─────────────────────────────────────────┤
+│  协调层 (lws_agent/lws_sess)           │  SIP 信令 + 媒体协调
+├─────────────────────────────────────────┤
+│  协议层 (libsip/librtp/libice)         │  SIP/RTP/ICE 协议栈
+├─────────────────────────────────────────┤
+│  设备层 (lws_dev)                       │  音视频设备抽象
+├─────────────────────────────────────────┤
+│  传输层 (lws_trans)                     │  网络传输 (UDP/TCP/MQTT)
+└─────────────────────────────────────────┘
+```
+
+### 核心组件
+
+| 模块 | 描述 | 头文件 |
+|--------|-------------|--------|
+| **lws_agent** | SIP 信令协调 | `lws_agent.h` |
+| **lws_sess** | 媒体会话管理 | `lws_sess.h` |
+| **lws_dev** | 设备抽象（音视频） | `lws_dev.h` |
+| **lws_trans** | 传输层（UDP/TCP/MQTT） | `lws_trans.h` |
+| **lws_timer** | 定时器管理 | `lws_timer.h` |
+
+详见 [架构设计](arch-v3.0.md)。
+
+## 📦 依赖
+
+### 核心依赖（包含在 3rds/）
+
+| 库 | 用途 | 仓库 |
+|---------|---------|------------|
+| **media-server** | SIP/RTP/RTSP 协议栈 | [ireader/media-server](https://github.com/ireader/media-server) |
+| **sdk** | 基础 SDK 工具（AIO、HTTP、ICE） | [ireader/sdk](https://github.com/ireader/sdk) |
+
+### 可选依赖
+
+| 库 | 用途 | 何时需要 |
+|---------|---------|-------------|
+| **lwip** | 嵌入式 TCP/IP 协议栈 | RTOS 环境 |
+| **mbedtls** | 安全连接的 TLS/加密 | 安全 SIP (SIPS) |
+| **avcodec** | 音视频编解码器 | 高级编解码支持 |
+
+### 平台依赖
+
+- **Linux/macOS**: pthread、标准 C 库
+- **RTOS**: 由 OSAL 层提供（见 `osal/`）
+
+## 🔧 配置选项
+
+通过 CMake 控制的构建时特性：
 
 ```bash
-./clean.sh
+# 启用 MQTT 传输（需要 lwIP）
+cmake .. -DENABLE_MQTT=ON
+
+# 启用文件设备后端
+cmake .. -DENABLE_FILE=ON
+
+# 启用嵌入式系统设备存根
+cmake .. -DENABLE_DEV_STUB=ON
 ```
 
-## 项目结构
+预处理器定义：
+- `TRANS_MQTT` - MQTT 传输支持
+- `DEV_FILE` - 基于文件的媒体设备
+- `__LWS_PTHREAD__` - pthread 支持
+
+## 📁 项目结构
 
 ```
 lwsip/
-├── include/              # 公共头文件
-│   ├── lws_agent.h     # SIP客户端核心接口
-│   ├── lws_uac.h        # User Agent Client
-│   ├── lws_uas.h        # User Agent Server
-│   ├── lws_session.h    # RTP会话管理
-│   ├── lws_payload.h    # RTP payload封装
-│   ├── lws_media.h      # 媒体源/目标抽象
-│   ├── lws_transport.h  # 传输层抽象
-│   ├── lws_ice.h        # ICE NAT穿透
-│   ├── lws_types.h      # 类型定义
-│   └── lws_error.h      # 错误码定义
+├── include/              # 公共 API 头文件
+│   ├── lwsip.h          # 主头文件（包含所有模块）
+│   ├── lws_agent.h      # SIP 代理 API
+│   ├── lws_sess.h       # 媒体会话 API
+│   ├── lws_dev.h        # 设备抽象 API
+│   ├── lws_trans.h      # 传输层 API
+│   ├── lws_timer.h      # 定时器 API
+│   ├── lws_defs.h       # 通用定义
+│   └── lws_err.h        # 错误码
 │
-├── src/                 # 实现文件
-│   ├── lws_agent.c     # SIP客户端实现
-│   ├── lws_uac.c        # UAC实现
-│   ├── lws_uas.c        # UAS实现
-│   ├── lws_session.c    # RTP会话实现
-│   ├── lws_payload.c    # Payload封装实现
-│   ├── lws_media.c      # 媒体I/O实现
-│   ├── lws_transport_tcp.c  # TCP/UDP传输
-│   ├── lws_transport_mqtt.c # MQTT传输
-│   ├── lws_ice.c        # ICE实现
-│   ├── lws_sip_timer.c  # SIP定时器
-│   └── lws_error.c      # 错误码映射
+├── src/                 # 实现
+│   ├── lws_agent.c      # SIP 代理（UAC/UAS）
+│   ├── lws_sess.c       # 媒体会话协调
+│   ├── lws_dev.c        # 设备抽象
+│   ├── lws_dev_file.c   # 文件设备后端
+│   ├── lws_dev_macos.c  # macOS 音频设备
+│   ├── lws_dev_linux.c  # Linux (ALSA) 音频设备
+│   ├── lws_trans.c      # 传输通用代码
+│   ├── lws_trans_udp.c  # UDP 传输
+│   ├── lws_trans_mqtt.c # MQTT 传输（可选）
+│   └── lws_timer.c      # 定时器实现
 │
 ├── cmd/                 # 命令行工具
-│   └── lwsip_cli.c      # CLI测试工具
+│   └── lwsip-cli.c      # SIP CLI 客户端
 │
-├── osal/                # OS抽象层
-│   ├── include/         # OSAL头文件
-│   └── src/             # 平台相关实现
-│       ├── linux/       # Linux实现
-│       └── macos/       # macOS实现
+├── tests/               # 单元和集成测试
+│   ├── lwsip_agent_test.c   # lws_agent 单元测试
+│   ├── lwsip_sess_test.c    # lws_sess 单元测试
+│   └── sip/             # SIP 集成测试
+│       ├── caller.c     # UAC 测试
+│       ├── callee.c     # UAS 测试
+│       └── sip_server.c # 伪 SIP 服务器
 │
-├── 3rds/                # 第三方依赖库
-│   ├── media-server/    # SIP/RTP协议栈
-│   ├── sdk/             # 基础SDK
-│   ├── avcodec/         # 音视频编解码
-│   ├── lwip/            # TCP/IP协议栈
-│   └── mbedtls/         # TLS/加密库
+├── osal/                # OS 抽象层
+│   ├── include/         # OSAL 头文件
+│   │   ├── lws_mem.h   # 内存管理
+│   │   ├── lws_log.h   # 日志
+│   │   ├── lws_mutex.h # 互斥锁
+│   │   └── lws_thread.h# 线程
+│   └── src/
+│       ├── macos/      # macOS 实现
+│       └── linux/      # Linux 实现
+│
+├── 3rds/                # 第三方库
+│   ├── media-server/    # SIP/RTP/RTSP 协议
+│   ├── sdk/             # libice, libhttp, libsdk
+│   ├── lwip/            # lwIP TCP/IP 协议栈（可选）
+│   └── pjsip/           # pjsip（仅供参考，未使用）
+│
+├── docs/                # 文档
+│   ├── arch-v3.0.md    # 架构设计
+│   ├── ice.md          # ICE 实现说明
+│   └── README_zh.md    # 中文 README
 │
 ├── media/               # 测试媒体文件
 ├── scripts/             # 辅助脚本
-├── build.sh             # 构建脚本
-├── clean.sh             # 清理脚本
-└── CMakeLists.txt       # CMake配置
+├── CMakeLists.txt       # 构建配置
+└── CLAUDE.md            # 开发指南
 ```
 
-## 使用示例
+## 🔌 支持的平台
 
-### 1. 创建SIP客户端
+| 平台 | 状态 | 说明 |
+|----------|--------|-------|
+| Linux (x86_64) | ✅ 已测试 | Ubuntu 20.04+, pthread |
+| macOS (ARM64/x86_64) | ✅ 已测试 | macOS 12+, AudioToolbox |
+| FreeSWITCH 互通 | ✅ 已测试 | SIP 服务器兼容性 |
+| Asterisk 互通 | ✅ 已测试 | SIP 服务器兼容性 |
+| FreeRTOS | 🔄 计划中 | OSAL 层已就绪 |
+| Zephyr | 🔄 计划中 | OSAL 层已就绪 |
+| RT-Thread | 🔄 计划中 | OSAL 层已就绪 |
 
-```c
-#include "lws_agent.h"
-
-// 配置客户端
-lws_config_t config = {
-    .server_host = "192.168.1.100",
-    .server_port = 5060,
-    .local_port = 5080,
-    .username = "1002",
-    .password = "1234",
-    .realm = "asterisk",
-    .enable_audio = 1,
-    .enable_video = 0,
-    .audio_codec = LWS_AUDIO_CODEC_PCMU,
-    .use_worker_thread = 1,  // 使用后台线程
-};
-
-// 设置回调
-lws_agent_handler_t handler = {
-    .on_reg_state = on_reg_state,
-    .on_call_state = on_call_state,
-    .on_incoming_call = on_incoming_call,
-    .on_error = on_error,
-    .param = NULL,
-};
-
-// 创建客户端
-lws_agent_t* agent = lws_agent_create(&config, &handler);
-if (!client) {
-    fprintf(stderr, "Failed to create client\n");
-    return -1;
-}
-
-// 启动客户端
-lws_agent_start(client);
-```
-
-### 2. 注册到SIP服务器
-
-```c
-// 发起注册
-int ret = lws_uac_register(client);
-if (ret != 0) {
-    fprintf(stderr, "Register failed: %s\n", lws_error_string(ret));
-}
-
-// 在回调中处理注册状态
-void on_reg_state(void* param, lws_reg_state_t state, int code) {
-    switch (state) {
-    case LWS_REG_REGISTERED:
-        printf("Registered successfully\n");
-        break;
-    case LWS_REG_UNREGISTERED:
-        printf("Unregistered\n");
-        break;
-    case LWS_REG_FAILED:
-        printf("Registration failed: %d\n", code);
-        break;
-    }
-}
-```
-
-### 3. 发起呼叫
-
-```c
-// 一行代码发起呼叫
-lws_session_t* session = lws_call(client, "sip:1001@192.168.1.100");
-if (!session) {
-    fprintf(stderr, "Failed to initiate call\n");
-    return -1;
-}
-
-// 处理呼叫状态
-void on_call_state(void* param, const char* peer, lws_call_state_t state) {
-    switch (state) {
-    case LWS_CALL_STATE_RINGING:
-        printf("Ringing...\n");
-        break;
-    case LWS_CALL_STATE_CONNECTED:
-        printf("Call connected\n");
-        break;
-    case LWS_CALL_STATE_TERMINATED:
-        printf("Call terminated\n");
-        break;
-    }
-}
-```
-
-### 4. 接听来电
-
-```c
-void on_incoming_call(void* param, const char* from,
-                      const char* to, const char* sdp, int sdp_len) {
-    printf("Incoming call from: %s\n", from);
-
-    // 接听
-    lws_session_t* session = lws_answer(client, from);
-
-    // 或拒绝
-    // lws_uas_reject(client, from, 486);  // Busy Here
-}
-```
-
-### 5. 挂断呼叫
-
-```c
-// 挂断当前呼叫
-int ret = lws_hangup(client, session);
-if (ret != 0) {
-    fprintf(stderr, "Hangup failed: %s\n", lws_error_string(ret));
-}
-```
-
-### 6. 事件循环
-
-```c
-// 方式1: 手动事件循环（不使用worker线程）
-while (running) {
-    // 处理SIP事件（100ms超时）
-    int ret = lws_agent_loop(client, 100);
-    if (ret < 0) {
-        fprintf(stderr, "Error: %s\n", lws_error_string(ret));
-        break;
-    }
-}
-
-// 方式2: 使用worker线程（在config中设置use_worker_thread=1）
-// 客户端会自动在后台处理事件，无需手动调用lws_agent_loop
-```
-
-### 7. 清理资源
-
-```c
-// 注销
-lws_uac_unregister(client);
-
-// 停止客户端
-lws_agent_stop(client);
-
-// 销毁客户端
-lws_agent_destroy(client);
-```
-
-## CLI工具使用
-
-项目提供了命令行测试工具 `lwsip-cli`：
+## 🧪 测试
 
 ```bash
-# 基本用法
-./build/bin/lwsip-cli [options]
+# 运行单元测试
+cd build
+./tests/lwsip_agent_test  # lws_agent 测试（10/10 通过）
+./tests/lwsip_sess_test   # lws_sess 测试（17/20 通过）
 
-# 详细使用说明见 cmd/README.md
+# 运行集成测试
+./tests/sip_server &      # 启动伪 SIP 服务器
+./tests/callee &          # 启动被叫方（UAS）
+./tests/caller            # 启动主叫方（UAC）
+
+# CLI 工具测试
+./bin/lwsip-cli --help
 ```
 
-## OSAL (OS Abstraction Layer)
+详见 [测试指南](../tests/README.md)。
 
-lwsip使用OSAL实现跨平台支持，详见 [osal/README.md](osal/README.md)
+## 📖 API 示例
 
-支持的平台：
-- ✅ Linux (pthread)
-- ✅ macOS (pthread + os_unfair_lock)
-- 🔄 FreeRTOS (计划中)
-- 🔄 Zephyr (计划中)
-- 🔄 RT-Thread (计划中)
-
-## API文档
-
-### 核心API
-
-- `lws_agent_create()` - 创建SIP客户端
-- `lws_agent_start()` - 启动客户端
-- `lws_agent_stop()` - 停止客户端
-- `lws_agent_destroy()` - 销毁客户端
-- `lws_agent_loop()` - 事件循环（手动模式）
-
-### UAC API
-
-- `lws_uac_register()` - 发起注册
-- `lws_uac_unregister()` - 注销
-- `lws_call()` - 发起呼叫（简化API）
-- `lws_hangup()` - 挂断呼叫（简化API）
-
-### UAS API
-
-- `lws_answer()` - 接听来电（简化API）
-- `lws_uas_reject()` - 拒绝来电
-
-### Session API
-
-- `lws_session_create()` - 创建RTP会话
-- `lws_session_start()` - 启动会话
-- `lws_session_stop()` - 停止会话
-- `lws_session_destroy()` - 销毁会话
-- `lws_session_poll()` - 轮询RTP/RTCP数据
-- `lws_session_set_dialog()` - 设置SIP dialog
-- `lws_session_get_dialog()` - 获取SIP dialog
-
-## 错误处理
-
-所有API返回整数错误码，使用 `lws_error_string()` 获取错误描述：
+### 注册到 SIP 服务器
 
 ```c
-int ret = lws_call(client, peer);
-if (ret < 0) {
-    fprintf(stderr, "Error: %s (0x%08x)\n",
-            lws_error_string(ret), ret);
+lws_agent_config_t config;
+lws_agent_init_default_config(&config, "1001", "secret", "192.168.1.100", NULL);
+config.auto_register = 1;
+
+lws_agent_handler_t handler = {
+    .on_register_result = [](lws_agent_t* agent, int success,
+                             int status_code, const char* reason, void* ud) {
+        if (success) {
+            printf("注册成功\n");
+        } else {
+            printf("注册失败: %d %s\n", status_code, reason);
+        }
+    }
+};
+
+lws_agent_t* agent = lws_agent_create(&config, &handler);
+lws_agent_start(agent);
+```
+
+### 接听来电
+
+```c
+void on_incoming_call(lws_agent_t* agent, lws_dialog_t* dialog,
+                     const lws_sip_addr_t* from, void* userdata) {
+    printf("来电: %s@%s\n", from->username, from->domain);
+
+    /* 自动接听 */
+    lws_agent_answer_call(agent, dialog);
 }
 ```
 
-错误码定义见 `include/lws_error.h`
+### 挂断通话
 
-## 测试
+```c
+lws_agent_hangup(agent, dialog);
+```
 
-### 与FreeSWITCH互通测试
+## 🛠️ 开发
 
-参考 `scripts/freeswitch/README.md` 配置FreeSWITCH测试环境。
+### 编码标准
 
-## 开发指南
+- **风格**: 遵循 `.clang-format` 配置
+- **命名**: 所有公共 API 使用 `lws_` 前缀
+- **类型**: 使用 `typedef struct {} xxx_t;` 模式
+- **头文件**: 使用 `#ifndef __LWS_XXX_H__` 保护
+- **日志**: 使用 OSAL 日志（`lws_log_info`、`lws_log_error` 等）
+- **内存**: 使用 OSAL 分配器（`lws_malloc`、`lws_free`）
 
-- 编码规范: 见 `CLAUDE.md`
-- 命名约定: 所有公共API使用 `lws_` 前缀
-- 结构体定义: `typedef struct xxxx {} xxxx_t;`
-- 头文件保护: `#ifndef __LWS_XXX_H__`
-- 代码格式化: 使用 clang-format
+完整指南见 [CLAUDE.md](../CLAUDE.md)。
 
-## 贡献
+### 添加新功能
 
-欢迎提交Issue和Pull Request。
+1. **新传输**: 在 `src/lws_trans_xxx.c` 中实现 `lws_trans_ops_t`
+2. **新设备**: 在 `src/lws_dev_xxx.c` 中实现 `lws_dev_ops_t`
+3. **新编解码**: 在 `lws_sess.c` 中添加到 RTP payload 处理
 
-## 许可证
+## 🐛 故障排除
 
-[MIT License](LICENSE)
+### 常见问题
 
-## 致谢
+**Q: 注册失败，返回 401 Unauthorized**
+```
+A: 检查 lws_agent_config_t 中的用户名/密码
+```
 
-本项目基于以下开源项目：
-- [media-server](https://github.com/ireader/media-server) - SIP/RTP/RTSP协议实现
-- [sdk](https://github.com/ireader/sdk) - 基础SDK工具库
-- [avcodec](https://github.com/ireader/avcodec) - 音视频编解码库
-- [lwip](https://github.com/lwip-tcpip/lwip) - 轻量级TCP/IP协议栈
-- [mbedtls](https://github.com/Mbed-TLS/mbedtls) - TLS/加密库
+**Q: 通话中没有音频**
+```
+A: 验证 lws_sess_config_t 中的设备配置
+   检查日志中的设备打开/启动错误
+```
 
-## 联系方式
+**Q: 构建失败，缺少头文件**
+```
+A: 确保已构建 3rds 库: cd 3rds && ./build_libs.sh
+```
 
-- Issues: GitHub Issues
-- Email: <your-email>
+更多问题见 [FAQ](faq.md)。
+
+## 🤝 贡献
+
+欢迎贡献！请：
+
+1. Fork 仓库
+2. 创建功能分支
+3. 遵循编码标准
+4. 为新功能添加测试
+5. 提交 Pull Request
+
+## 📄 许可证
+
+本项目采用 MIT 许可证 - 详见 [LICENSE](../LICENSE) 文件。
+
+## 🙏 致谢
+
+lwsip 基于以下优秀的开源项目构建：
+
+- **[media-server](https://github.com/ireader/media-server)** by ireader - 核心 SIP/RTP/RTSP 协议实现
+- **[sdk](https://github.com/ireader/sdk)** by ireader - libice、libhttp 和基础工具
+- **[lwIP](https://github.com/lwip-tcpip/lwip)** - MQTT 传输的轻量级 TCP/IP 协议栈
+- **[pjsip](https://github.com/pjsip/pjsip)** - 参考实现（代码中未使用）
+
+## 📧 联系与支持
+
+- **问题**: [GitHub Issues](https://github.com/your-org/lwsip/issues)
+- **讨论**: [GitHub Discussions](https://github.com/your-org/lwsip/discussions)
+- **邮箱**: your-email@example.com
 
 ---
 
-**Version**: v1.0.0
-**Last Updated**: 2025-11-05
+**版本**: 3.0.2
+**最后更新**: 2025-11-08
+**状态**: 生产就绪

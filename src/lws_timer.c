@@ -61,19 +61,21 @@ static uint64_t get_current_time_ms(void)
  */
 static void timer_list_insert_sorted(timer_node_t* node)
 {
+    struct list_head* __pos;
     timer_node_t* pos;
 
     /* Find insertion point (keep list sorted by expire time) */
-    list_for_each_entry(pos, &g_timer_mgr.timers, list) {
+    list_for_each(__pos, &g_timer_mgr.timers) {
+        pos = list_entry(__pos, timer_node_t, list);
         if (node->expire_time_ms < pos->expire_time_ms) {
             /* Insert before this position */
-            list_add_tail(&node->list, &pos->list);
+            list_insert_before(&node->list, &pos->list);
             return;
         }
     }
 
     /* If we reach here, insert at tail (largest expire time) */
-    list_add_tail(&node->list, &g_timer_mgr.timers);
+    list_insert_before(&node->list, &g_timer_mgr.timers);
 }
 
 /**
@@ -86,13 +88,15 @@ static void timer_list_insert_sorted(timer_node_t* node)
  */
 static timer_node_t* timer_list_remove(timer_node_t* node)
 {
+    struct list_head* __pos;
     timer_node_t* pos;
 
     /* Find timer with matching pointer address */
-    list_for_each_entry(pos, &g_timer_mgr.timers, list) {
+    list_for_each(__pos, &g_timer_mgr.timers) {
+        pos = list_entry(__pos, timer_node_t, list);
         if (pos == node) {
             /* Remove from list */
-            list_del(&pos->list);
+            list_remove(&pos->list);
             return pos;
         }
     }
@@ -118,20 +122,21 @@ static void* lws_timer_loop(void* arg)
 
     while (g_timer_mgr.running) {
         uint64_t now = get_current_time_ms();
+        struct list_head *__pos, *__n;
         timer_node_t* pos;
-        timer_node_t* tmp;
 
         lws_mutex_lock(&g_timer_mgr.mutex);
 
         /* Check for expired timers (list is sorted, so stop at first non-expired) */
-        list_for_each_entry_safe(pos, tmp, &g_timer_mgr.timers, list) {
+        list_for_each_safe(__pos, __n, &g_timer_mgr.timers) {
+            pos = list_entry(__pos, timer_node_t, list);
             if (pos->expire_time_ms > now) {
                 /* List is sorted - no more expired timers */
                 break;
             }
 
             /* Timer expired - remove from list */
-            list_del(&pos->list);
+            list_remove(&pos->list);
 
             /* Call callback without holding lock (avoid deadlock) */
             sip_timer_handle handler = pos->handler;
@@ -177,7 +182,7 @@ int lws_timer_init(void)
     memset(&g_timer_mgr, 0, sizeof(g_timer_mgr));
 
     /* Initialize list head */
-    INIT_LIST_HEAD(&g_timer_mgr.timers);
+    LIST_INIT_HEAD(&g_timer_mgr.timers);
 
     /* Create mutex */
     lws_mutex_init(&g_timer_mgr.mutex);
@@ -214,10 +219,11 @@ void lws_timer_cleanup(void)
     /* Free all remaining timers */
     lws_mutex_lock(&g_timer_mgr.mutex);
 
+    struct list_head *__pos, *__n;
     timer_node_t* pos;
-    timer_node_t* tmp;
-    list_for_each_entry_safe(pos, tmp, &g_timer_mgr.timers, list) {
-        list_del(&pos->list);
+    list_for_each_safe(__pos, __n, &g_timer_mgr.timers) {
+        pos = list_entry(__pos, timer_node_t, list);
+        list_remove(&pos->list);
         lws_free(pos);
     }
 
@@ -252,7 +258,7 @@ sip_timer_t sip_timer_start(int timeout, sip_timer_handle handler, void* usrptr)
     node->expire_time_ms = get_current_time_ms() + (uint64_t)timeout;
     node->handler = handler;
     node->usrptr = usrptr;
-    INIT_LIST_HEAD(&node->list);
+    LIST_INIT_HEAD(&node->list);
 
     /* Insert into sorted list */
     lws_mutex_lock(&g_timer_mgr.mutex);

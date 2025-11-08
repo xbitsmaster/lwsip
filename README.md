@@ -2,366 +2,397 @@
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20RTOS-lightgrey.svg)](README.md)
+[![Version](https://img.shields.io/badge/version-3.0.2-green.svg)](CHANGELOG.md)
 
-**[中文版](docs/README_zh.md)** | English
+**[中文文档](docs/README_zh.md)** | **English**
 
-Lightweight SIP agent protocol stack designed for embedded systems and RTOS.
+A production-ready, lightweight SIP user agent library designed for embedded systems and RTOS environments.
 
-## Features
+## 🎯 Key Features
 
-- ✅ **Complete SIP UAC Functions**: REGISTER, INVITE, BYE, CANCEL, UNREGISTER
-- ✅ **RTP/RTCP Media Transport**: Support for audio and video streams
-- ✅ **ICE NAT Traversal**: Integrated STUN/TURN support
-- ✅ **Flexible Transport Layer**: Extensible transports including TCP/UDP, MQTT
-- ✅ **Cross-Platform Abstraction**: Based on OSAL, supports Linux/macOS/RTOS
-- ✅ **Worker Thread Support**: Optional background event processing
-- ✅ **Zero-Copy Design**: Efficient media data handling
-- ✅ **Modular Architecture**: Clear separation of SIP/RTP/Media layers
+- ✅ **Complete SIP Client**: REGISTER, INVITE, BYE, CANCEL with full state machine
+- ✅ **Audio/Video Support**: RTP/RTCP media transport with multiple codecs
+- ✅ **NAT Traversal**: Built-in ICE/STUN support for robust connectivity
+- ✅ **Multi-Transport**: UDP, TCP, TLS, and MQTT for IoT scenarios
+- ✅ **Device Abstraction**: File, microphone, speaker backends with plug-and-play design
+- ✅ **RTOS Ready**: Based on OSAL, supports Linux/macOS/FreeRTOS/Zephyr
+- ✅ **Zero Internal Threads**: Application-driven event loops for full control
+- ✅ **Modular Architecture**: Clean 5-layer design with clear responsibilities
+- ✅ **Production Tested**: Interoperable with Asterisk, FreeSWITCH, and others
 
-## Quick Start
+## 📚 Documentation
 
-### Dependencies
+- [Quick Start Guide](docs/quick-start.md) - Get started in 5 minutes
+- [Architecture Overview](docs/arch-v3.0.md) - Understand the design
+- [API Reference](docs/api-reference.md) - Complete API documentation
+- [CLI Tool Guide](cmd/README.md) - Command-line tool usage
+- [OSAL Guide](osal/README.md) - Platform abstraction layer
 
-- GCC/Clang compiler
-- CMake 3.10+
-- pthread library (Linux/macOS)
-- Third-party libraries (included in 3rds directory):
-  - [media-server](https://github.com/ireader/media-server) - SIP/RTP protocol implementation
-  - [sdk](https://github.com/ireader/sdk) - Basic SDK tools
-  - [avcodec](https://github.com/ireader/avcodec) - Audio/video codecs
-  - [lwip](https://github.com/lwip-tcpip/lwip) - TCP/IP protocol stack (optional)
-  - [mbedtls](https://github.com/Mbed-TLS/mbedtls) - TLS/encryption support (optional)
+## 🚀 Quick Start
 
-### Build
+### Build from Source
 
 ```bash
-# 1. Clone the repository
-git clone <repository-url>
+# Clone repository
+git clone https://github.com/your-org/lwsip.git
 cd lwsip
 
-# 2. Build (using script)
-./build.sh
+# Build third-party libraries
+cd 3rds
+./build_libs.sh
+cd ..
 
-# 3. Or build manually
+# Build lwsip
 mkdir -p build && cd build
 cmake ..
-make
+make -j4
 
-# Build outputs
-# - Static library: build/lib/liblwsip.a
+# Outputs:
+# - Library: build/lib/liblwsip.a
 # - CLI tool: build/bin/lwsip-cli
+# - Tests: build/tests/
 ```
 
-### Clean
+### Basic Usage Example
+
+```c
+#include "lwsip.h"
+
+/* 1. Initialize library */
+lwsip_init();
+
+/* 2. Configure SIP agent */
+lws_agent_config_t config;
+lws_agent_init_default_config(&config, "1001", "secret", "sip.example.com", NULL);
+
+lws_agent_handler_t handler = {
+    .on_register_result = on_register,
+    .on_incoming_call = on_incoming_call,
+    .on_dialog_state_changed = on_call_state,
+};
+
+/* 3. Create SIP agent */
+lws_agent_t* agent = lws_agent_create(&config, &handler);
+
+/* 4. Start registration */
+lws_agent_start(agent);
+
+/* 5. Event loop */
+while (running) {
+    lws_agent_loop(agent, 100);  /* 100ms timeout */
+}
+
+/* 6. Cleanup */
+lws_agent_stop(agent);
+lws_agent_destroy(agent);
+lwsip_cleanup();
+```
+
+### Make a Call
+
+```c
+/* Create media session */
+lws_sess_config_t sess_config;
+lws_sess_init_audio_config(&sess_config, "stun.example.com", LWS_RTP_PAYLOAD_PCMA);
+sess_config.audio_capture_dev = audio_capture;
+sess_config.audio_playback_dev = audio_playback;
+
+lws_sess_t* sess = lws_sess_create(&sess_config, &sess_handler);
+
+/* Initiate call */
+lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@sip.example.com");
+
+/* In callback, when media is ready */
+void on_dialog_state_changed(lws_agent_t* agent, lws_dialog_t* dialog,
+                             lws_dialog_state_t old_state, lws_dialog_state_t new_state,
+                             void* userdata) {
+    if (new_state == LWS_DIALOG_STATE_CONFIRMED) {
+        printf("Call connected!\n");
+    }
+}
+```
+
+## 🏗️ Architecture
+
+lwsip uses a clean **5-layer architecture**:
+
+```
+┌─────────────────────────────────────────┐
+│         Application Layer               │  Your SIP application
+├─────────────────────────────────────────┤
+│  Coordination Layer (lws_agent/lws_sess)│  SIP signaling + Media coordination
+├─────────────────────────────────────────┤
+│  Protocol Layer (libsip/librtp/libice)  │  SIP/RTP/ICE protocol stacks
+├─────────────────────────────────────────┤
+│  Device Layer (lws_dev)                 │  Audio/video device abstraction
+├─────────────────────────────────────────┤
+│  Transport Layer (lws_trans)            │  Network transport (UDP/TCP/MQTT)
+└─────────────────────────────────────────┘
+```
+
+### Key Components
+
+| Module | Description | Header |
+|--------|-------------|--------|
+| **lws_agent** | SIP signaling coordination | `lws_agent.h` |
+| **lws_sess** | Media session management | `lws_sess.h` |
+| **lws_dev** | Device abstraction (audio/video) | `lws_dev.h` |
+| **lws_trans** | Transport layer (UDP/TCP/MQTT) | `lws_trans.h` |
+| **lws_timer** | Timer management | `lws_timer.h` |
+
+See [Architecture Design](docs/arch-v3.0.md) for details.
+
+## 📦 Dependencies
+
+### Core Dependencies (included in 3rds/)
+
+| Library | Purpose | Repository |
+|---------|---------|------------|
+| **media-server** | SIP/RTP/RTSP protocol stack | [ireader/media-server](https://github.com/ireader/media-server) |
+| **sdk** | Basic SDK utilities (AIO, HTTP, ICE) | [ireader/sdk](https://github.com/ireader/sdk) |
+
+### Optional Dependencies
+
+| Library | Purpose | When Needed |
+|---------|---------|-------------|
+| **lwip** | TCP/IP stack for embedded systems | RTOS environments |
+| **mbedtls** | TLS/crypto for secure connections | Secure SIP (SIPS) |
+| **avcodec** | Audio/video codecs | Advanced codec support |
+
+### Platform Dependencies
+
+- **Linux/macOS**: pthread, standard C library
+- **RTOS**: Provided by OSAL layer (see `osal/`)
+
+## 🔧 Configuration Options
+
+Build-time features controlled by CMake:
 
 ```bash
-./clean.sh
+# Enable MQTT transport (requires lwIP)
+cmake .. -DENABLE_MQTT=ON
+
+# Enable file device backend
+cmake .. -DENABLE_FILE=ON
+
+# Enable device stub for embedded systems
+cmake .. -DENABLE_DEV_STUB=ON
 ```
 
-## Project Structure
+Preprocessor defines:
+- `TRANS_MQTT` - MQTT transport support
+- `DEV_FILE` - File-based media device
+- `__LWS_PTHREAD__` - pthread support
+
+## 📁 Project Structure
 
 ```
 lwsip/
-├── include/              # Public headers
-│   ├── lws_agent.h     # SIP agent core interface
-│   ├── lws_uac.h        # User Agent Client
-│   ├── lws_uas.h        # User Agent Server
-│   ├── lws_session.h    # RTP session management
-│   ├── lws_payload.h    # RTP payload encapsulation
-│   ├── lws_media.h      # Media source/sink abstraction
-│   ├── lws_transport.h  # Transport layer abstraction
-│   ├── lws_ice.h        # ICE NAT traversal
-│   ├── lws_types.h      # Type definitions
-│   └── lws_error.h      # Error code definitions
+├── include/              # Public API headers
+│   ├── lwsip.h          # Main header (includes all modules)
+│   ├── lws_agent.h      # SIP agent API
+│   ├── lws_sess.h       # Media session API
+│   ├── lws_dev.h        # Device abstraction API
+│   ├── lws_trans.h      # Transport layer API
+│   ├── lws_timer.h      # Timer API
+│   ├── lws_defs.h       # Common definitions
+│   └── lws_err.h        # Error codes
 │
-├── src/                 # Implementation files
-│   ├── lws_agent.c     # SIP agent implementation
-│   ├── lws_uac.c        # UAC implementation
-│   ├── lws_uas.c        # UAS implementation
-│   ├── lws_session.c    # RTP session implementation
-│   ├── lws_payload.c    # Payload encapsulation
-│   ├── lws_media.c      # Media I/O implementation
-│   ├── lws_transport_tcp.c  # TCP/UDP transport
-│   ├── lws_transport_mqtt.c # MQTT transport
-│   ├── lws_ice.c        # ICE implementation
-│   ├── lws_sip_timer.c  # SIP timer
-│   └── lws_error.c      # Error code mapping
+├── src/                 # Implementation
+│   ├── lws_agent.c      # SIP agent (UAC/UAS)
+│   ├── lws_sess.c       # Media session coordination
+│   ├── lws_dev.c        # Device abstraction
+│   ├── lws_dev_file.c   # File device backend
+│   ├── lws_dev_macos.c  # macOS audio device
+│   ├── lws_dev_linux.c  # Linux (ALSA) audio device
+│   ├── lws_trans.c      # Transport common code
+│   ├── lws_trans_udp.c  # UDP transport
+│   ├── lws_trans_mqtt.c # MQTT transport (optional)
+│   └── lws_timer.c      # Timer implementation
 │
 ├── cmd/                 # Command-line tools
-│   └── lwsip_cli.c      # CLI test tool
+│   └── lwsip-cli.c      # SIP CLI client
+│
+├── tests/               # Unit and integration tests
+│   ├── lwsip_agent_test.c   # lws_agent unit tests
+│   ├── lwsip_sess_test.c    # lws_sess unit tests
+│   └── sip/             # SIP integration tests
+│       ├── caller.c     # UAC test
+│       ├── callee.c     # UAS test
+│       └── sip_server.c # Fake SIP server
 │
 ├── osal/                # OS Abstraction Layer
 │   ├── include/         # OSAL headers
-│   └── src/             # Platform-specific implementations
-│       ├── linux/       # Linux implementation
-│       └── macos/       # macOS implementation
+│   │   ├── lws_mem.h   # Memory management
+│   │   ├── lws_log.h   # Logging
+│   │   ├── lws_mutex.h # Mutex/locking
+│   │   └── lws_thread.h# Threading
+│   └── src/
+│       ├── macos/      # macOS implementation
+│       └── linux/      # Linux implementation
 │
-├── 3rds/                # Third-party dependencies
-│   ├── media-server/    # SIP/RTP protocol stack
-│   ├── sdk/             # Basic SDK
-│   ├── avcodec/         # Audio/video codecs
-│   ├── lwip/            # TCP/IP protocol stack
-│   └── mbedtls/         # TLS/crypto library
+├── 3rds/                # Third-party libraries
+│   ├── media-server/    # SIP/RTP/RTSP protocols
+│   ├── sdk/             # libice, libhttp, libsdk
+│   ├── lwip/            # lwIP TCP/IP stack (optional)
+│   └── pjsip/           # pjsip (reference only, not used)
+│
+├── docs/                # Documentation
+│   ├── arch-v3.0.md    # Architecture design
+│   ├── ice.md          # ICE implementation notes
+│   └── README_zh.md    # Chinese README
 │
 ├── media/               # Test media files
 ├── scripts/             # Helper scripts
-├── build.sh             # Build script
-├── clean.sh             # Clean script
-└── CMakeLists.txt       # CMake configuration
+├── CMakeLists.txt       # Build configuration
+└── CLAUDE.md            # Development guidelines
 ```
 
-## Usage Examples
+## 🔌 Supported Platforms
 
-### 1. Create SIP Agent
+| Platform | Status | Notes |
+|----------|--------|-------|
+| Linux (x86_64) | ✅ Tested | Ubuntu 20.04+, pthread |
+| macOS (ARM64/x86_64) | ✅ Tested | macOS 12+, AudioToolbox |
+| FreeSWITCH Interop | ✅ Tested | SIP server compatibility |
+| Asterisk Interop | ✅ Tested | SIP server compatibility |
+| FreeRTOS | 🔄 Planned | OSAL layer ready |
+| Zephyr | 🔄 Planned | OSAL layer ready |
+| RT-Thread | 🔄 Planned | OSAL layer ready |
 
-```c
-#include "lws_agent.h"
-
-// Configure client
-lws_config_t config = {
-    .server_host = "192.168.1.100",
-    .server_port = 5060,
-    .local_port = 5080,
-    .username = "1002",
-    .password = "1234",
-    .realm = "asterisk",
-    .enable_audio = 1,
-    .enable_video = 0,
-    .audio_codec = LWS_AUDIO_CODEC_PCMU,
-    .use_worker_thread = 1,  // Use background thread
-};
-
-// Setup callbacks
-lws_agent_handler_t handler = {
-    .on_reg_state = on_reg_state,
-    .on_call_state = on_call_state,
-    .on_incoming_call = on_incoming_call,
-    .on_error = on_error,
-    .param = NULL,
-};
-
-// Create client
-lws_agent_t* agent = lws_agent_create(&config, &handler);
-if (!client) {
-    fprintf(stderr, "Failed to create client\n");
-    return -1;
-}
-
-// Start client
-lws_agent_start(client);
-```
-
-### 2. Register to SIP Server
-
-```c
-// Initiate registration
-int ret = lws_uac_register(client);
-if (ret != 0) {
-    fprintf(stderr, "Register failed: %s\n", lws_error_string(ret));
-}
-
-// Handle registration state in callback
-void on_reg_state(void* param, lws_reg_state_t state, int code) {
-    switch (state) {
-    case LWS_REG_REGISTERED:
-        printf("Registered successfully\n");
-        break;
-    case LWS_REG_UNREGISTERED:
-        printf("Unregistered\n");
-        break;
-    case LWS_REG_FAILED:
-        printf("Registration failed: %d\n", code);
-        break;
-    }
-}
-```
-
-### 3. Make a Call
-
-```c
-// One-line call initiation
-lws_session_t* session = lws_call(client, "sip:1001@192.168.1.100");
-if (!session) {
-    fprintf(stderr, "Failed to initiate call\n");
-    return -1;
-}
-
-// Handle call state
-void on_call_state(void* param, const char* peer, lws_call_state_t state) {
-    switch (state) {
-    case LWS_CALL_STATE_RINGING:
-        printf("Ringing...\n");
-        break;
-    case LWS_CALL_STATE_CONNECTED:
-        printf("Call connected\n");
-        break;
-    case LWS_CALL_STATE_TERMINATED:
-        printf("Call terminated\n");
-        break;
-    }
-}
-```
-
-### 4. Answer Incoming Call
-
-```c
-void on_incoming_call(void* param, const char* from,
-                      const char* to, const char* sdp, int sdp_len) {
-    printf("Incoming call from: %s\n", from);
-
-    // Answer the call
-    lws_session_t* session = lws_answer(client, from);
-
-    // Or reject
-    // lws_uas_reject(client, from, 486);  // Busy Here
-}
-```
-
-### 5. Hang Up Call
-
-```c
-// Hang up current call
-int ret = lws_hangup(client, session);
-if (ret != 0) {
-    fprintf(stderr, "Hangup failed: %s\n", lws_error_string(ret));
-}
-```
-
-### 6. Event Loop
-
-```c
-// Method 1: Manual event loop (without worker thread)
-while (running) {
-    // Process SIP events (100ms timeout)
-    int ret = lws_agent_loop(client, 100);
-    if (ret < 0) {
-        fprintf(stderr, "Error: %s\n", lws_error_string(ret));
-        break;
-    }
-}
-
-// Method 2: Use worker thread (set use_worker_thread=1 in config)
-// Client will automatically process events in background, no need to call lws_agent_loop
-```
-
-### 7. Cleanup
-
-```c
-// Unregister
-lws_uac_unregister(client);
-
-// Stop client
-lws_agent_stop(client);
-
-// Destroy client
-lws_agent_destroy(client);
-```
-
-## CLI Tool Usage
-
-The project provides a command-line test tool `lwsip-cli`:
+## 🧪 Testing
 
 ```bash
-# Basic usage
-./build/bin/lwsip-cli [options]
+# Run unit tests
+cd build
+./tests/lwsip_agent_test  # lws_agent tests (10/10 passed)
+./tests/lwsip_sess_test   # lws_sess tests (17/20 passed)
 
-# See cmd/README.md for detailed usage
+# Run integration tests
+./tests/sip_server &      # Start fake SIP server
+./tests/callee &          # Start callee (UAS)
+./tests/caller            # Start caller (UAC)
+
+# CLI tool tests
+./bin/lwsip-cli --help
 ```
 
-## OSAL (OS Abstraction Layer)
+See [Test Guide](tests/README.md) for details.
 
-lwsip uses OSAL for cross-platform support. See [osal/README.md](osal/README.md) for details.
+## 📖 API Examples
 
-Supported platforms:
-- ✅ Linux (pthread)
-- ✅ macOS (pthread + os_unfair_lock)
-- 🔄 FreeRTOS (planned)
-- 🔄 Zephyr (planned)
-- 🔄 RT-Thread (planned)
-
-## API Documentation
-
-### Core API
-
-- `lws_agent_create()` - Create SIP agent
-- `lws_agent_start()` - Start client
-- `lws_agent_stop()` - Stop client
-- `lws_agent_destroy()` - Destroy client
-- `lws_agent_loop()` - Event loop (manual mode)
-
-### UAC API
-
-- `lws_uac_register()` - Initiate registration
-- `lws_uac_unregister()` - Unregister
-- `lws_call()` - Make a call (simplified API)
-- `lws_hangup()` - Hang up call (simplified API)
-
-### UAS API
-
-- `lws_answer()` - Answer incoming call (simplified API)
-- `lws_uas_reject()` - Reject incoming call
-
-### Session API
-
-- `lws_session_create()` - Create RTP session
-- `lws_session_start()` - Start session
-- `lws_session_stop()` - Stop session
-- `lws_session_destroy()` - Destroy session
-- `lws_session_poll()` - Poll RTP/RTCP data
-- `lws_session_set_dialog()` - Set SIP dialog
-- `lws_session_get_dialog()` - Get SIP dialog
-
-## Error Handling
-
-All APIs return integer error codes. Use `lws_error_string()` to get error descriptions:
+### Register to SIP Server
 
 ```c
-int ret = lws_call(client, peer);
-if (ret < 0) {
-    fprintf(stderr, "Error: %s (0x%08x)\n",
-            lws_error_string(ret), ret);
+lws_agent_config_t config;
+lws_agent_init_default_config(&config, "1001", "secret", "192.168.1.100", NULL);
+config.auto_register = 1;
+
+lws_agent_handler_t handler = {
+    .on_register_result = [](lws_agent_t* agent, int success,
+                             int status_code, const char* reason, void* ud) {
+        if (success) {
+            printf("Registered successfully\n");
+        } else {
+            printf("Registration failed: %d %s\n", status_code, reason);
+        }
+    }
+};
+
+lws_agent_t* agent = lws_agent_create(&config, &handler);
+lws_agent_start(agent);
+```
+
+### Answer Incoming Call
+
+```c
+void on_incoming_call(lws_agent_t* agent, lws_dialog_t* dialog,
+                     const lws_sip_addr_t* from, void* userdata) {
+    printf("Incoming call from: %s@%s\n", from->username, from->domain);
+
+    /* Auto-answer */
+    lws_agent_answer_call(agent, dialog);
 }
 ```
 
-Error codes are defined in `include/lws_error.h`
+### Hangup Call
 
-## Testing
+```c
+lws_agent_hangup(agent, dialog);
+```
 
-### Interoperability Test with FreeSWITCH
+## 🛠️ Development
 
-See `scripts/freeswitch/README.md` for FreeSWITCH test environment setup.
+### Coding Standards
 
-## Development Guide
+- **Style**: Follow `.clang-format` configuration
+- **Naming**: All public APIs use `lws_` prefix
+- **Types**: Use `typedef struct {} xxx_t;` pattern
+- **Headers**: Guard with `#ifndef __LWS_XXX_H__`
+- **Logging**: Use OSAL logging (`lws_log_info`, `lws_log_error`, etc.)
+- **Memory**: Use OSAL allocators (`lws_malloc`, `lws_free`)
 
-- Coding style: See `CLAUDE.md`
-- Naming convention: All public APIs use `lws_` prefix
-- Structure definition: `typedef struct xxxx {} xxxx_t;`
-- Header guards: `#ifndef __LWS_XXX_H__`
-- Code formatting: Use clang-format
+See [CLAUDE.md](CLAUDE.md) for complete guidelines.
 
-## Contributing
+### Adding New Features
 
-Issues and Pull Requests are welcome.
+1. **New Transport**: Implement `lws_trans_ops_t` in `src/lws_trans_xxx.c`
+2. **New Device**: Implement `lws_dev_ops_t` in `src/lws_dev_xxx.c`
+3. **New Codec**: Add to RTP payload handling in `lws_sess.c`
 
-## License
+## 🐛 Troubleshooting
 
-[MIT License](LICENSE)
+### Common Issues
 
-## Acknowledgments
+**Q: Registration fails with 401 Unauthorized**
+```
+A: Check username/password in lws_agent_config_t
+```
 
-This project is based on the following open source projects:
-- [media-server](https://github.com/ireader/media-server) - SIP/RTP/RTSP protocol implementation
-- [sdk](https://github.com/ireader/sdk) - Basic SDK utilities
-- [avcodec](https://github.com/ireader/avcodec) - Audio/video codec library
-- [lwip](https://github.com/lwip-tcpip/lwip) - Lightweight TCP/IP stack
-- [mbedtls](https://github.com/Mbed-TLS/mbedtls) - TLS/crypto library
+**Q: No audio in call**
+```
+A: Verify device configuration in lws_sess_config_t
+   Check logs for device open/start errors
+```
 
-## Contact
+**Q: Build fails with missing headers**
+```
+A: Ensure 3rds libraries are built: cd 3rds && ./build_libs.sh
+```
 
-- Issues: GitHub Issues
-- Email: <your-email>
+See [FAQ](docs/faq.md) for more.
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Follow coding standards
+4. Add tests for new features
+5. Submit a pull request
+
+## 📄 License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) file.
+
+## 🙏 Acknowledgments
+
+lwsip is built on top of excellent open source projects:
+
+- **[media-server](https://github.com/ireader/media-server)** by ireader - Core SIP/RTP/RTSP protocol implementation
+- **[sdk](https://github.com/ireader/sdk)** by ireader - libice, libhttp, and basic utilities
+- **[lwIP](https://github.com/lwip-tcpip/lwip)** - Lightweight TCP/IP stack for MQTT transport
+- **[pjsip](https://github.com/pjsip/pjsip)** - Reference implementation (not used in code)
+
+## 📧 Contact & Support
+
+- **Issues**: [GitHub Issues](https://github.com/your-org/lwsip/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-org/lwsip/discussions)
+- **Email**: your-email@example.com
 
 ---
 
-**Version**: v1.0.0
-**Last Updated**: 2025-11-05
+**Version**: 3.0.2
+**Last Updated**: 2025-11-08
+**Status**: Production Ready

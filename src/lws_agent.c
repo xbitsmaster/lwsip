@@ -31,6 +31,9 @@
 /* http parser for SIP message parsing */
 #include "http-parser.h"
 
+/* list.h for dialog management */
+#include "list.h"
+
 #include <string.h>
 #include <stdio.h>
 
@@ -56,8 +59,8 @@ typedef struct lws_dialog_intl_t {
     char local_sdp[2048];            /**< 本地SDP */
     char remote_sdp[2048];           /**< 远端SDP */
 
-    /* 链表 */
-    struct lws_dialog_intl_t* next;
+    /* 双向链表节点 */
+    struct list_head list_node;
 } lws_dialog_intl_t;
 
 /**
@@ -79,7 +82,7 @@ struct lws_agent_t {
     lws_agent_state_t state;
 
     /* Dialog management */
-    lws_dialog_intl_t* dialogs;      /**< Dialog链表 */
+    struct list_head dialogs;        /**< Dialog双向链表头 */
     int dialog_count;                 /**< Dialog数量 */
 
     /* SIP registration */
@@ -140,7 +143,11 @@ static lws_dialog_intl_t* lws_agent_find_dialog(lws_agent_t* agent, const char* 
         return NULL;
     }
 
-    for (lws_dialog_intl_t* dlg = agent->dialogs; dlg != NULL; dlg = dlg->next) {
+    struct list_head* pos;
+    lws_dialog_intl_t* dlg;
+
+    list_for_each(pos, &agent->dialogs) {
+        dlg = list_entry(pos, lws_dialog_intl_t, list_node);
         if (strcmp(dlg->public.call_id, call_id) == 0) {
             return dlg;
         }
@@ -178,8 +185,7 @@ static lws_dialog_intl_t* lws_agent_create_dialog(lws_agent_t* agent,
     dlg->state = LWS_DIALOG_STATE_NULL;
 
     /* 插入链表头 */
-    dlg->next = agent->dialogs;
-    agent->dialogs = dlg;
+    list_insert_after(&dlg->list_node, &agent->dialogs);
     agent->dialog_count++;
 
     return dlg;
@@ -191,17 +197,8 @@ static void lws_agent_destroy_dialog(lws_agent_t* agent, lws_dialog_intl_t* dlg)
         return;
     }
 
-    /* 从链表移除 */
-    if (agent->dialogs == dlg) {
-        agent->dialogs = dlg->next;
-    } else {
-        for (lws_dialog_intl_t* p = agent->dialogs; p != NULL; p = p->next) {
-            if (p->next == dlg) {
-                p->next = dlg->next;
-                break;
-            }
-        }
-    }
+    /* O(1) 删除 - 双向链表无需遍历找前驱 */
+    list_remove(&dlg->list_node);
     agent->dialog_count--;
 
     /* NOTE: Do NOT manually release invite_txn here!
@@ -336,12 +333,13 @@ static void sess_on_disconnected(lws_sess_t* sess, const char* reason, void* use
 {
     lws_dialog_intl_t* dlg = (lws_dialog_intl_t*)userdata;
     LWS_UNUSED(sess);
+    LWS_UNUSED(reason);
 
     if (!dlg) {
         return;
     }
 
-    lws_log_info("[MEDIA_SESSION] Media disconnected (reason: %s)\n", reason ? reason : "unknown");
+    lws_log_info("[MEDIA_SESSION] Media disconnected\n");
 
     /* TODO: 可以在这里通知应用层媒体已断开 */
 }
@@ -354,6 +352,7 @@ static int sip_transport_via(void* transport, const char* destination,
                              char protocol[16], char local[128], char dns[128])
 {
     lws_agent_t* agent = (lws_agent_t*)transport;
+    LWS_UNUSED(destination);
 
     /* 协议固定为UDP */
     snprintf(protocol, 16, "UDP");
@@ -414,6 +413,7 @@ static int sip_uas_send(void* param, const struct cstring_t* protocol,
                        int rport, const void* data, int bytes)
 {
     lws_agent_t* agent = (lws_agent_t*)param;
+    LWS_UNUSED(protocol);
 
     lws_addr_t to;
 
@@ -469,7 +469,10 @@ static int sip_uas_onregister(void* param, const struct sip_message_t* req,
                               struct sip_uas_transaction_t* t, const char* user,
                               const char* location, int expires)
 {
-    lws_agent_t* agent = (lws_agent_t*)param;
+    LWS_UNUSED(req);
+    LWS_UNUSED(user);
+    LWS_UNUSED(location);
+    LWS_UNUSED(expires);
 
     /* Not supported as UAS (we're UAC only for now) */
     sip_uas_reply(t, 405, NULL, 0, param);  /* Method Not Allowed */
@@ -484,6 +487,7 @@ static int sip_uas_oninvite(void* param, const struct sip_message_t* req,
                             const void* data, int bytes)
 {
     lws_agent_t* agent = (lws_agent_t*)param;
+    LWS_UNUSED(id);
 
     /* Extract call-ID */
     char call_id[LWS_MAX_CALL_ID_LEN];
@@ -580,6 +584,15 @@ static int sip_uas_onack(void* param, const struct sip_message_t* req,
                         const struct cstring_t* id, int code,
                         const void* data, int bytes)
 {
+    LWS_UNUSED(param);
+    LWS_UNUSED(req);
+    LWS_UNUSED(t);
+    LWS_UNUSED(dialog);
+    LWS_UNUSED(id);
+    LWS_UNUSED(code);
+    LWS_UNUSED(data);
+    LWS_UNUSED(bytes);
+
     /* ACK received, call established */
     return 0;
 }
@@ -589,6 +602,7 @@ static int sip_uas_onbye(void* param, const struct sip_message_t* req,
                         const struct cstring_t* id)
 {
     lws_agent_t* agent = (lws_agent_t*)param;
+    LWS_UNUSED(id);
 
     /* Extract call-ID */
     char call_id[LWS_MAX_CALL_ID_LEN];
@@ -703,6 +717,9 @@ static void trans_on_data(lws_trans_t* trans, const void* data, int len,
 static void trans_on_error(lws_trans_t* trans, int error, const char* msg,
                           void* userdata)
 {
+    LWS_UNUSED(trans);
+    LWS_UNUSED(userdata);
+
     lws_log_error(error, "Transport error: %s\n", msg);
 }
 
@@ -728,6 +745,10 @@ lws_agent_t* lws_agent_create(const lws_agent_config_t* config,
     agent->config = *config;
     agent->handler = *handler;
     agent->state = LWS_AGENT_STATE_IDLE;
+
+    /* Initialize dialog list */
+    LIST_INIT_HEAD(&agent->dialogs);
+    agent->dialog_count = 0;
 
     /* Create transport */
     lws_trans_config_t trans_config = {0};
@@ -784,9 +805,13 @@ void lws_agent_destroy(lws_agent_t* agent)
         return;
     }
 
-    /* Destroy all dialogs */
-    while (agent->dialogs) {
-        lws_agent_destroy_dialog(agent, agent->dialogs);
+    /* Destroy all dialogs - 使用 list_for_each_safe 支持遍历中删除 */
+    struct list_head *pos, *n;
+    lws_dialog_intl_t* dlg;
+
+    list_for_each_safe(pos, n, &agent->dialogs) {
+        dlg = list_entry(pos, lws_dialog_intl_t, list_node);
+        lws_agent_destroy_dialog(agent, dlg);
     }
 
     /* Destroy libsip agent */
@@ -1558,13 +1583,16 @@ int lws_agent_get_dialogs(lws_agent_t* agent, lws_dialog_t** dialogs, int max_co
 
     /* Iterate through dialog list and copy pointers */
     int count = 0;
-    lws_dialog_intl_t* dlg = agent->dialogs;
+    struct list_head* pos;
+    lws_dialog_intl_t* dlg;
 
-    while (dlg && count < max_count) {
-        /* Point to the public dialog structure */
+    list_for_each(pos, &agent->dialogs) {
+        if (count >= max_count) {
+            break;
+        }
+        dlg = list_entry(pos, lws_dialog_intl_t, list_node);
         dialogs[count] = &dlg->public;
         count++;
-        dlg = dlg->next;
     }
 
     return count;

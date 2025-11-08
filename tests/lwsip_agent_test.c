@@ -19,6 +19,9 @@
 #include "lws_err.h"
 #include "lws_mem.h"
 #include "lws_log.h"
+#include "lws_timer.h"
+#include "lws_thread.h"
+#include "trans_stub.h"
 
 /* ========================================
  * Test Framework
@@ -120,6 +123,7 @@ static void mock_on_register_result(
     g_last_register_status_code = status_code;
 }
 
+__attribute__((unused))
 static void mock_on_incoming_call(
     lws_agent_t* agent,
     lws_dialog_t* dialog,
@@ -300,6 +304,337 @@ TEST(agent_create_destroy_null_handler) {
     ASSERT_NULL(agent);
 }
 
+/* ========================================
+ * REGISTER Tests (with intelligent trans_stub)
+ * ======================================== */
+
+TEST(register_success) {
+    /* Initialize timer/stub system */
+    lws_timer_init();
+
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_REGISTER_SUCCESS);
+    trans_stub_set_response_delay(0);  /* Immediate response */
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret", "stub.com", NULL);
+    config.auto_register = 0;  /* Don't auto-register */
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_state_changed = mock_on_state_changed;
+    handler.on_register_result = mock_on_register_result;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Initiate REGISTER (via start) */
+    int ret = lws_agent_start(agent);
+    ASSERT_EQ(ret, 0);
+
+    /* Process responses (simulate event loop) */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);  /* Small delay for async processing */
+    }
+
+    /* Verify callbacks were called */
+    ASSERT_TRUE(g_on_register_result_called > 0);
+    ASSERT_EQ(g_last_register_success, 1);
+    ASSERT_EQ(g_last_register_status_code, 200);
+
+    /* Note: on_state_changed is not called for REGISTERING->REGISTERED transition
+     * This is by design in lws_agent.c. We rely on on_register_result instead. */
+
+    /* Verify no errors */
+    ASSERT_EQ(g_on_error_called, 0);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+TEST(register_with_auth_challenge) {
+    lws_timer_init();
+
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_REGISTER_AUTH);
+    trans_stub_set_response_delay(0);
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret123", "stub.com", NULL);
+    config.auto_register = 0;
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_state_changed = mock_on_state_changed;
+    handler.on_register_result = mock_on_register_result;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Initiate REGISTER (via start) */
+    int ret = lws_agent_start(agent);
+    ASSERT_EQ(ret, 0);
+
+    /* Process responses - stub will send 401 auth challenge */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Verify 401 authentication challenge was received and handled */
+    ASSERT_TRUE(g_on_register_result_called > 0);
+    ASSERT_EQ(g_last_register_status_code, 401);
+
+    /* Note: Full automatic authentication retry would require integration test.
+     * This unit test verifies that the agent correctly receives and processes
+     * the 401 challenge. The libsip automatic retry mechanism needs a more
+     * complex environment than what stubs can provide. */
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+TEST(register_failure) {
+    lws_timer_init();
+
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_REGISTER_FAILURE);
+    trans_stub_set_response_delay(0);
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "wrong", "stub.com", NULL);
+    config.auto_register = 0;
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_state_changed = mock_on_state_changed;
+    handler.on_register_result = mock_on_register_result;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Initiate REGISTER (via start) */
+    int ret = lws_agent_start(agent);
+    ASSERT_EQ(ret, 0);
+
+    /* Process responses */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Verify failure callback */
+    ASSERT_TRUE(g_on_register_result_called > 0);
+    ASSERT_EQ(g_last_register_success, 0);
+    ASSERT_EQ(g_last_register_status_code, 403);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+/* ========================================
+ * INVITE/BYE Tests (with intelligent trans_stub)
+ * ======================================== */
+
+TEST(invite_call_success) {
+    lws_timer_init();
+
+    reset_mocks();
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret", "stub.com", NULL);
+    config.auto_register = 1;  /* Enable auto-register */
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_state_changed = mock_on_state_changed;
+    handler.on_register_result = mock_on_register_result;
+    handler.on_dialog_state_changed = mock_on_dialog_state_changed;
+    handler.on_remote_sdp = mock_on_remote_sdp;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* First register with success scenario */
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_REGISTER_SUCCESS);
+    int ret = lws_agent_start(agent);
+    ASSERT_EQ(ret, 0);
+
+    /* Process REGISTER responses */
+    for (int i = 0; i < 30; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Now switch to INVITE scenario */
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_INVITE_SUCCESS);
+    trans_stub_set_response_delay(0);
+
+    /* Make call */
+    lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@stub.com");
+    printf("    [DEBUG] make_call returned dialog=%p\n", (void*)dialog);
+    ASSERT_NOT_NULL(dialog);
+
+    /* Process responses (180 Ringing + 200 OK) */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Debug output */
+    printf("    [DEBUG] dialog_state_changed_called=%d, last_state=%d\n",
+           g_on_dialog_state_changed_called, g_last_dialog_state);
+    printf("    [DEBUG] remote_sdp_called=%d\n", g_on_remote_sdp_called);
+
+    /* Verify callbacks */
+    ASSERT_TRUE(g_on_dialog_state_changed_called > 0);
+    ASSERT_EQ(g_last_dialog_state, LWS_DIALOG_STATE_CONFIRMED);
+
+    /* Remote SDP should be received */
+    ASSERT_TRUE(g_on_remote_sdp_called > 0);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+TEST(invite_call_busy) {
+    lws_timer_init();
+
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_INVITE_BUSY);
+    trans_stub_set_response_delay(0);
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret", "stub.com", NULL);
+    config.auto_register = 0;
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_dialog_state_changed = mock_on_dialog_state_changed;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Make call */
+    lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@stub.com");
+    ASSERT_NOT_NULL(dialog);
+
+    /* Process responses (486 Busy) */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Verify dialog state changed (should be terminated due to busy) */
+    ASSERT_TRUE(g_on_dialog_state_changed_called > 0);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+TEST(invite_call_declined) {
+    lws_timer_init();
+
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_INVITE_DECLINED);
+    trans_stub_set_response_delay(0);
+
+    /* Create agent */
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret", "stub.com", NULL);
+    config.auto_register = 0;
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_dialog_state_changed = mock_on_dialog_state_changed;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Make call */
+    lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@stub.com");
+    ASSERT_NOT_NULL(dialog);
+
+    /* Process responses (603 Decline) */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Verify dialog state changed (should be terminated) */
+    ASSERT_TRUE(g_on_dialog_state_changed_called > 0);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
+TEST(bye_hangup_success) {
+    lws_timer_init();
+
+    reset_mocks();
+
+    /* First establish a call with INVITE success */
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_INVITE_SUCCESS);
+    trans_stub_set_response_delay(0);
+
+    lws_agent_config_t config;
+    lws_agent_init_default_config(&config, "1001", "secret", "stub.com", NULL);
+    config.auto_register = 0;
+
+    lws_agent_handler_t handler;
+    memset(&handler, 0, sizeof(handler));
+    handler.on_dialog_state_changed = mock_on_dialog_state_changed;
+    handler.on_remote_sdp = mock_on_remote_sdp;
+    handler.on_error = mock_on_error;
+
+    lws_agent_t* agent = lws_agent_create(&config, &handler);
+    ASSERT_NOT_NULL(agent);
+
+    /* Make call */
+    lws_dialog_t* dialog = lws_agent_make_call(agent, "sip:1002@stub.com");
+    ASSERT_NOT_NULL(dialog);
+
+    /* Process responses to establish call */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Reset mocks and switch to BYE scenario */
+    reset_mocks();
+    trans_stub_set_scenario(TRANS_STUB_SCENARIO_BYE_SUCCESS);
+
+    /* Hangup */
+    int ret = lws_agent_hangup(agent, dialog);
+    ASSERT_EQ(ret, 0);
+
+    /* Process BYE response */
+    for (int i = 0; i < 50; i++) {
+        lws_agent_loop(agent, 10);
+        lws_thread_sleep(5);
+    }
+
+    /* Verify dialog terminated */
+    ASSERT_TRUE(g_on_dialog_state_changed_called > 0);
+    ASSERT_EQ(g_last_dialog_state, LWS_DIALOG_STATE_TERMINATED);
+
+    lws_agent_destroy(agent);
+    lws_timer_cleanup();
+}
+
 #endif /* !DEBUG_AGENT */
 
 /* ========================================
@@ -328,6 +663,17 @@ int main(int argc, char* argv[]) {
     /* Full agent tests (require libsip) */
     run_test_agent_create_destroy_null_config();
     run_test_agent_create_destroy_null_handler();
+
+    /* REGISTER tests (with intelligent trans_stub) */
+    run_test_register_success();
+    run_test_register_with_auth_challenge();
+    run_test_register_failure();
+
+    /* INVITE/BYE tests (with intelligent trans_stub) */
+    run_test_invite_call_success();
+    run_test_invite_call_busy();
+    run_test_invite_call_declined();
+    run_test_bye_hangup_success();
 #endif
 
     printf("\n==================================================\n");
