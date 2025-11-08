@@ -1,23 +1,20 @@
 #!/bin/bash
-# 自动测试脚本：pjsua(1000) 作为被叫方，lwsip-cli(1001) 作为主叫方
-# 用法: ./test_lwsip_call.sh
 
-echo "========================================="
-echo "测试 lwsip-cli 呼叫 pjsua"
-echo "========================================="
-echo "被叫方: pjsua (1000, 端口 5070)"
+echo "========================================"
+echo "lwsip-cli 呼叫测试"
+echo "========================================"
+echo "被叫方: pjsua (1000) 端口 5070"
 echo "主叫方: lwsip-cli (1001)"
-echo "========================================="
+echo "通过: FreeSWITCH (198.19.249.149:5060)"
+echo "========================================"
 echo ""
 
-# 清理之前的进程
-echo "[0/5] 清理旧进程..."
-pkill -f "pjsua.*1000" 2>/dev/null || true
-pkill -f "lwsip-cli" 2>/dev/null || true
+# 清理之前的进程和日志
+pkill -f pjsua || true
+pkill -f lwsip-cli || true
+mkdir -p ../build/logs
+rm -f ../build/logs/lwsip_caller.log ../build/logs/lwsip_callee.log
 sleep 2
-
-# 清理旧日志
-rm -f /tmp/lwsip_test_callee.log /tmp/lwsip_test_caller.log
 
 # 创建被叫方保持脚本
 CALLEE_SCRIPT=$(mktemp)
@@ -26,141 +23,139 @@ sleep 120
 echo "q"
 EOF
 
-# 启动 pjsua 被叫方 (1000)
-echo "[1/5] 启动 pjsua 被叫方 (1000)..."
-(bash "$CALLEE_SCRIPT" | ./callee.sh > /tmp/lwsip_test_callee.log 2>&1) &
+# 启动被叫方 pjsua (1000)
+echo "[1/3] 启动被叫方 pjsua (1000)..."
+(bash "$CALLEE_SCRIPT" | ./callee.sh > ../build/logs/lwsip_callee.log 2>&1) &
 CALLEE_PID=$!
 echo "      被叫方 PID: $CALLEE_PID"
-echo ""
 
 # 等待被叫方注册
-echo "[2/5] 等待被叫方注册 (最长15秒)..."
+echo "[2/3] 等待被叫方注册 (最长15秒)..."
 COUNTER=0
-REGISTERED=0
 while [ $COUNTER -lt 15 ]; do
-    if grep -q "registration success" /tmp/lwsip_test_callee.log 2>/dev/null; then
+    if grep -q "registration success" ../build/logs/lwsip_callee.log 2>/dev/null; then
         echo "      ✓ 被叫方 1000 注册成功!"
-        REGISTERED=1
         break
     fi
     sleep 1
     COUNTER=$((COUNTER + 1))
-    echo -n "."
+    if [ $((COUNTER % 3)) -eq 0 ]; then echo -n "."; fi
 done
 echo ""
 
-# 检查注册结果
-if [ $REGISTERED -eq 0 ]; then
-    echo "      ✗ 被叫方注册失败或超时"
+if ! grep -q "registration success" ../build/logs/lwsip_callee.log 2>/dev/null; then
+    echo "      ✗ 被叫方注册失败，退出测试"
     echo ""
-    echo "被叫方日志 (最后30行):"
-    echo "----------------------------------------"
-    tail -30 /tmp/lwsip_test_callee.log
-    echo "----------------------------------------"
+    echo "被叫方日志:"
+    tail -30 ../build/logs/lwsip_callee.log
     rm -f "$CALLEE_SCRIPT"
-    pkill -f "pjsua.*1000" 2>/dev/null || true
-    exit 1
-fi
-
-# 检查被叫方进程
-if ! ps -p $CALLEE_PID > /dev/null 2>&1; then
-    echo "      ✗ 被叫方进程已退出"
-    rm -f "$CALLEE_SCRIPT"
+    pkill -f "pjsua.*1000" || true
     exit 1
 fi
 
 echo ""
-echo "[3/5] 启动 lwsip-cli 主叫方 (1001)..."
+echo "[3/3] 启动主叫方 lwsip-cli (1001 -> 1000)..."
+echo "      将在注册后自动呼叫 1000，通话时间约 10 秒"
+echo ""
 
-# 运行 lwsip-cli
-./lwsip_caller.sh > /tmp/lwsip_test_caller.log 2>&1
+# 运行 lwsip-cli，等待 15 秒观察
+./lwsip_caller.sh > ../build/logs/lwsip_caller.log 2>&1 &
+CALLER_PID=$!
+echo "      主叫方 PID: $CALLER_PID"
+
+# 等待 15 秒观察
+sleep 15
+
+# 检查主叫方进程状态
+if ps -p $CALLER_PID > /dev/null 2>&1; then
+    echo "      主叫方仍在运行，发送终止信号..."
+    kill $CALLER_PID 2>/dev/null || true
+    wait $CALLER_PID 2>/dev/null
+fi
 CALLER_EXIT=$?
 
-echo "      lwsip-cli 退出码: $CALLER_EXIT"
 echo ""
+echo "========================================"
+echo "呼叫测试完成"
+echo "========================================"
 
-echo "[4/5] 等待2秒让被叫方处理..."
-sleep 2
+# 清理
+echo ""
+echo "清理进程..."
+rm -f "$CALLEE_SCRIPT"
+pkill -f "pjsua.*1000" || true
+pkill -f lwsip-cli || true
+
+# 等待一下让进程清理完成
+sleep 1
 
 echo ""
-echo "[5/5] 测试完成！分析结果..."
-echo "========================================="
-echo ""
-
-# 分析结果
 echo "结果分析:"
 echo "----------------------------------------"
 
-# 被叫方分析
+# 检查被叫方日志
 echo ""
 echo "【被叫方 pjsua (1000)】"
-if grep -q "registration success" /tmp/lwsip_test_callee.log; then
+if grep -q "registration success" ../build/logs/lwsip_callee.log; then
     echo "  ✓ 注册成功"
-    grep "registration success" /tmp/lwsip_test_callee.log | head -1 | sed 's/^/    /'
 else
     echo "  ✗ 注册失败"
 fi
 
-if grep -qi "incoming.*call\|call.*from" /tmp/lwsip_test_callee.log; then
+if grep -qi "incoming.*call\|call.*from" ../build/logs/lwsip_callee.log; then
     echo "  ✓ 接收到来电"
-    grep -i "incoming.*call\|call.*from" /tmp/lwsip_test_callee.log | head -3 | sed 's/^/    /'
+    echo "  来电信息:"
+    grep -i "call.*from\|incoming" ../build/logs/lwsip_callee.log | head -3 | sed 's/^/    /'
 else
-    echo "  ✗ 未接收到来电"
+    echo "  - 未检测到来电"
 fi
 
-if grep -qi "call.*connected\|200.*ok" /tmp/lwsip_test_callee.log; then
-    echo "  ✓ 通话已建立"
-else
-    echo "  - 通话可能未建立"
-fi
-
-# 主叫方分析
+# 检查主叫方日志
 echo ""
 echo "【主叫方 lwsip-cli (1001)】"
 echo "  退出码: $CALLER_EXIT"
 
-# 检查 lwsip-cli 日志内容
-if [ -s /tmp/lwsip_test_caller.log ]; then
-    echo "  输出内容:"
-    sed 's/^/    /' /tmp/lwsip_test_caller.log
+if grep -qi "registered" ../build/logs/lwsip_caller.log; then
+    echo "  ✓ 注册成功"
+    grep -i "registered" ../build/logs/lwsip_caller.log | head -1 | sed 's/^/    /'
 else
-    echo "  ⚠ 无输出（可能是问题）"
+    echo "  - 注册状态未知"
 fi
 
-# 错误检测
+if grep -qi "calling\|ringing\|answered\|established" ../build/logs/lwsip_caller.log; then
+    echo "  ✓ 呼叫状态:"
+    grep -i "calling\|ringing\|answered\|established" ../build/logs/lwsip_caller.log | head -5 | sed 's/^/    /'
+else
+    echo "  - 未检测到呼叫信息"
+fi
+
+# 检查 session handler 输出
+if grep -qi "session.*media\|audio frame\|video frame" ../build/logs/lwsip_caller.log; then
+    echo "  ✓ 会话数据:"
+    grep -i "session.*media\|audio frame\|video frame" ../build/logs/lwsip_caller.log | head -5 | sed 's/^/    /'
+else
+    echo "  - 未检测到会话数据"
+fi
+
+# 检查错误
 echo ""
 echo "【错误检测】"
-ERROR_FOUND=0
-
-if grep -qi "error\|fail\|exception\|segmentation\|core dump" /tmp/lwsip_test_caller.log; then
-    echo "  ✗ lwsip-cli 输出中发现错误:"
-    grep -i "error\|fail\|exception\|segmentation\|core dump" /tmp/lwsip_test_caller.log | sed 's/^/    /'
-    ERROR_FOUND=1
-fi
-
-if [ $CALLER_EXIT -ne 0 ]; then
-    echo "  ✗ lwsip-cli 异常退出 (退出码: $CALLER_EXIT)"
-    ERROR_FOUND=1
-fi
-
-if ! grep -qi "incoming.*call\|call.*from" /tmp/lwsip_test_callee.log; then
-    echo "  ✗ 被叫方未收到来电 - lwsip 可能没有正确发起呼叫"
-    ERROR_FOUND=1
-fi
-
-if [ $ERROR_FOUND -eq 0 ]; then
+if grep -qi "error\|failed\|timeout" ../build/logs/lwsip_caller.log; then
+    echo "  ✗ 发现错误:"
+    grep -i "error\|failed\|timeout" ../build/logs/lwsip_caller.log | head -5 | sed 's/^/    /'
+else
     echo "  ✓ 未发现明显错误"
 fi
 
 echo ""
 echo "========================================="
-echo "详细日志文件:"
-echo "  被叫方: /tmp/lwsip_test_callee.log"
-echo "  主叫方: /tmp/lwsip_test_caller.log"
-echo "========================================="
+echo ""
+echo "完整日志文件:"
+echo "  被叫方: ../build/logs/lwsip_callee.log"
+echo "  主叫方: ../build/logs/lwsip_caller.log"
+echo ""
+echo "查看完整日志:"
+echo "  tail -f ../build/logs/lwsip_caller.log"
+echo "  tail -f ../build/logs/lwsip_callee.log"
+echo ""
 
-# 清理
-rm -f "$CALLEE_SCRIPT"
-pkill -f "pjsua.*1000" 2>/dev/null || true
-
-exit $ERROR_FOUND

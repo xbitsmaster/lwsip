@@ -7,7 +7,7 @@
  * custom protocol, making lwsip suitable for various embedded scenarios.
  *
  * Examples:
- * - lws_transport_tcp.c    : TCP/UDP socket (standard SIP)
+ * - lws_transport_socket.c : TCP/UDP socket (standard SIP)
  * - lws_transport_mqtt.c   : MQTT publish/subscribe (IoT)
  * - lws_transport_serial.c : RS232/RS485 (industrial)
  * - lws_transport_custom.c : Proprietary protocol
@@ -26,6 +26,7 @@ extern "C" {
  * Transport Handle
  * ============================================================ */
 
+struct lws_transport ;
 typedef struct lws_transport lws_transport_t;
 
 /* ============================================================
@@ -37,16 +38,30 @@ typedef struct {
     const char* remote_host;  // Server address (IP or hostname)
     uint16_t remote_port;     // Server port
     uint16_t local_port;      // Local bind port (0 for auto)
-    int use_tcp;              // 0=UDP, 1=TCP
 
+    lws_transport_type_t transport_type;  // Transport type
+
+    int enable_tls;                       // Enable TLS encryption
+    // TLS configuration: memory-based (for embedded systems without filesystem)
+    const void* tls_ca;               // CA certificate in memory
+    int tls_ca_size;                  // CA certificate size
+    const void* tls_cert;             // Client certificate in memory
+    int tls_cert_size;                // Client certificate size
+    const void* tls_key;              // Client private key in memory
+    int tls_key_size;                 // Client private key size
+
+    #if defined(LWS_ENABLE_TRANSPORT_MQTT)
     // For MQTT transport
     const char* mqtt_client_id;
     const char* mqtt_pub_topic;   // Topic for sending
     const char* mqtt_sub_topic;   // Topic for receiving
+    #endif
 
+    #if defined(LWS_ENABLE_TRANSPORT_SERIAL)
     // For serial transport
     const char* serial_device;    // e.g., "/dev/ttyS0"
     int serial_baudrate;          // e.g., 115200
+    #endif
 
     // Generic user data
     void* userdata;
@@ -148,15 +163,43 @@ typedef struct {
 } lws_transport_ops_t;
 
 /* ============================================================
+ * Container_of Macro (Linux Kernel Style)
+ *
+ * 用于从基类指针获取包含它的派生类指针
+ * 这是Linux内核的标准技术，类型安全且零开销
+ * ============================================================ */
+
+#ifndef offsetof
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+
+/**
+ * @brief 从成员指针获取包含该成员的结构体指针
+ * @param ptr 指向成员的指针
+ * @param type 包含该成员的结构体类型
+ * @param member 成员名称
+ *
+ * 示例:
+ *   lws_transport_tcp_t* tcp = lws_container_of(transport, lws_transport_tcp_t, base);
+ */
+#define lws_container_of(ptr, type, member) ({                      \
+    const typeof(((type *)0)->member) *__mptr = (ptr);              \
+    (type *)((char *)__mptr - offsetof(type, member));              \
+})
+
+/* ============================================================
  * Base Transport Structure
  *
- * Concrete implementations should embed this as first member:
+ * 具体实现应该包含此结构作为成员（不需要是第一个成员）：
  *
- * struct lws_transport_tcp {
- *     lws_transport_t base;  // Must be first!
- *     int sockfd;
- *     // ... other fields
- * };
+ * typedef struct lws_transport_tcp {
+ *     int sockfd;              // 可以在 base 之前
+ *     lws_transport_t base;    // 可以在任何位置！
+ *     char buffer[1024];       // 可以在 base 之后
+ * } lws_transport_tcp_t;
+ *
+ * 然后使用 lws_container_of 进行类型安全的转换：
+ *   lws_transport_tcp_t* tcp = lws_container_of(transport, lws_transport_tcp_t, base);
  * ============================================================ */
 
 struct lws_transport {
@@ -277,7 +320,7 @@ static inline void lws_transport_destroy(lws_transport_t* transport)
  * @param handler Callbacks
  * @return Transport handle or NULL on error
  */
-lws_transport_t* lws_transport_tcp_create(
+lws_transport_t* lws_transport_socket_create(
     const lws_transport_config_t* config,
     const lws_transport_handler_t* handler);
 

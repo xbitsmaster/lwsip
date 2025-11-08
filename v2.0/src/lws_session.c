@@ -3,6 +3,7 @@
  * @brief RTP session management implementation
  */
 
+#include "lws_agent.h"
 #include "lws_session.h"
 #include "lws_payload.h"
 #include "lws_ice.h"
@@ -76,6 +77,9 @@ struct lws_session {
 
     // SIP dialog (for sending BYE)
     void* dialog;                     // struct sip_dialog_t* from libsip
+
+    // SIP transaction (for CANCEL)
+    void* invite_transaction;         // struct sip_uac_transaction_t* from libsip
 
     // State
     int is_started;
@@ -230,9 +234,7 @@ static int video_frame_cb(void* param,
  * Public API
  * ============================================================ */
 
-lws_session_t* lws_session_create(
-    const lws_config_t* config,
-    const lws_session_handler_t* handler)
+lws_session_t* lws_session_create(lws_config_t* config, lws_session_handler_t* handler, int enable_video)
 {
     lws_session_t* session;
 
@@ -1065,6 +1067,26 @@ void lws_session_set_dialog(lws_session_t* session, void* dialog)
     sip_dialog_addref((struct sip_dialog_t*)dialog);
 
     lws_log_info("dialog saved to session\n");
+}
+
+void lws_session_set_invite_transaction(lws_session_t* session, void* transaction)
+{
+    if (!session || !transaction) {
+        return;
+    }
+
+    // Note: libsip transaction lifetime is managed by libsip itself
+    // We just store the pointer without taking ownership
+    session->invite_transaction = transaction;
+    lws_log_info("INVITE transaction saved to session\n");
+}
+
+void* lws_session_get_invite_transaction(lws_session_t* session)
+{
+    if (!session) {
+        return NULL;
+    }
+    return session->invite_transaction;
 }
 
 void* lws_session_get_dialog(lws_session_t* session)

@@ -28,11 +28,12 @@
 
 /* ============================================================
  * MQTT Transport Structure
+ *
+ * 注意：base 不需要是第一个成员！
+ * 使用 lws_container_of 进行类型安全的转换
  * ============================================================ */
 
 typedef struct lws_transport_mqtt {
-    lws_transport_t base;  // Must be first!
-
     // MQTT client handle
     void* mqtt_client;  // struct mosquitto*
 
@@ -42,7 +43,22 @@ typedef struct lws_transport_mqtt {
 
     // Buffer for receiving
     char recv_buffer[8192];
+
+    // Base transport (可以在任何位置)
+    lws_transport_t base;
 } lws_transport_mqtt_t;
+
+/**
+ * @brief 类型安全的转换：从 lws_transport_t* 到 lws_transport_mqtt_t*
+ * 使用 container_of 而不是简单的强制类型转换
+ */
+static inline lws_transport_mqtt_t* to_mqtt_transport(lws_transport_t* transport)
+{
+    if (!transport) {
+        return NULL;
+    }
+    return lws_container_of(transport, lws_transport_mqtt_t, base);
+}
 
 /* ============================================================
  * Forward Declarations
@@ -145,11 +161,13 @@ static void on_mqtt_disconnect(struct mosquitto *mosq, void *obj, int rc)
 
 static int mqtt_connect(lws_transport_t* transport)
 {
-    lws_transport_mqtt_t* mqtt = (lws_transport_mqtt_t*)transport;
+    lws_transport_mqtt_t* mqtt;
 
     if (!transport) {
         return LWS_ERR_INVALID_PARAM;
     }
+
+    mqtt = to_mqtt_transport(transport);
 
     lws_log_info("connecting to MQTT broker %s:%d\n",
                  mqtt->base.config.remote_host,
@@ -195,7 +213,7 @@ static int mqtt_connect(lws_transport_t* transport)
 
 static void mqtt_disconnect(lws_transport_t* transport)
 {
-    lws_transport_mqtt_t* mqtt = (lws_transport_mqtt_t*)transport;
+    lws_transport_mqtt_t* mqtt;
 
     if (!transport) {
         return;
@@ -219,11 +237,13 @@ static void mqtt_disconnect(lws_transport_t* transport)
 
 static int mqtt_send(lws_transport_t* transport, const void* data, int len)
 {
-    lws_transport_mqtt_t* mqtt = (lws_transport_mqtt_t*)transport;
+    lws_transport_mqtt_t* mqtt;
 
     if (!transport || !data || len <= 0) {
         return LWS_ERR_INVALID_PARAM;
     }
+
+    mqtt = to_mqtt_transport(transport);
 
     // TODO: Publish to MQTT topic
     /*
@@ -286,7 +306,7 @@ static int mqtt_poll(lws_transport_t* transport, int timeout_ms)
 
 static void mqtt_destroy(lws_transport_t* transport)
 {
-    lws_transport_mqtt_t* mqtt = (lws_transport_mqtt_t*)transport;
+    lws_transport_mqtt_t* mqtt;
 
     if (!transport) {
         return;
@@ -312,11 +332,16 @@ lws_transport_t* lws_transport_mqtt_create(
         return NULL;
     }
 
+#if defined(LWS_ENABLE_TRANSPORT_MQTT)
     if (!config->mqtt_client_id || !config->mqtt_pub_topic || !config->mqtt_sub_topic) {
         lws_log_error(LWS_ERR_INVALID_PARAM,
                       "mqtt_client_id, mqtt_pub_topic, and mqtt_sub_topic are required\n");
         return NULL;
     }
+#else
+    lws_log_error(LWS_ERR_INVALID_PARAM, "MQTT transport not enabled\n");
+    return NULL;
+#endif
 
     mqtt = (lws_transport_mqtt_t*)lws_malloc(sizeof(lws_transport_mqtt_t));
     if (!mqtt) {
@@ -332,13 +357,19 @@ lws_transport_t* lws_transport_mqtt_create(
     memcpy(&mqtt->base.handler, handler, sizeof(lws_transport_handler_t));
     mqtt->base.state = LWS_TRANSPORT_STATE_DISCONNECTED;
 
+#if defined(LWS_ENABLE_TRANSPORT_MQTT)
     // Copy topics
     strncpy(mqtt->pub_topic, config->mqtt_pub_topic, sizeof(mqtt->pub_topic) - 1);
     strncpy(mqtt->sub_topic, config->mqtt_sub_topic, sizeof(mqtt->sub_topic) - 1);
+#else
+    // Set empty topics when MQTT is not enabled
+    mqtt->pub_topic[0] = '\0';
+    mqtt->sub_topic[0] = '\0';
+#endif
 
     lws_log_info("mqtt transport created:\n");
     lws_log_info("  broker: %s:%d\n", config->remote_host, config->remote_port);
-    lws_log_info("  client_id: %s\n", config->mqtt_client_id);
+    // lws_log_info("  client_id: %s\n", config->mqtt_client_id);  // MQTT config field not available
     lws_log_info("  pub_topic: %s\n", mqtt->pub_topic);
     lws_log_info("  sub_topic: %s\n", mqtt->sub_topic);
 

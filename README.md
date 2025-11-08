@@ -5,7 +5,7 @@
 
 **[中文版](docs/README_zh.md)** | English
 
-Lightweight SIP client protocol stack designed for embedded systems and RTOS.
+Lightweight SIP agent protocol stack designed for embedded systems and RTOS.
 
 ## Features
 
@@ -63,7 +63,7 @@ make
 ```
 lwsip/
 ├── include/              # Public headers
-│   ├── lws_client.h     # SIP client core interface
+│   ├── lws_agent.h     # SIP agent core interface
 │   ├── lws_uac.h        # User Agent Client
 │   ├── lws_uas.h        # User Agent Server
 │   ├── lws_session.h    # RTP session management
@@ -75,7 +75,7 @@ lwsip/
 │   └── lws_error.h      # Error code definitions
 │
 ├── src/                 # Implementation files
-│   ├── lws_client.c     # SIP client implementation
+│   ├── lws_agent.c     # SIP agent implementation
 │   ├── lws_uac.c        # UAC implementation
 │   ├── lws_uas.c        # UAS implementation
 │   ├── lws_session.c    # RTP session implementation
@@ -112,10 +112,10 @@ lwsip/
 
 ## Usage Examples
 
-### 1. Create SIP Client
+### 1. Create SIP Agent
 
 ```c
-#include "lws_client.h"
+#include "lws_agent.h"
 
 // Configure client
 lws_config_t config = {
@@ -132,7 +132,7 @@ lws_config_t config = {
 };
 
 // Setup callbacks
-lws_client_handler_t handler = {
+lws_agent_handler_t handler = {
     .on_reg_state = on_reg_state,
     .on_call_state = on_call_state,
     .on_incoming_call = on_incoming_call,
@@ -141,14 +141,14 @@ lws_client_handler_t handler = {
 };
 
 // Create client
-lws_client_t* client = lws_client_create(&config, &handler);
+lws_agent_t* agent = lws_agent_create(&config, &handler);
 if (!client) {
     fprintf(stderr, "Failed to create client\n");
     return -1;
 }
 
 // Start client
-lws_client_start(client);
+lws_agent_start(client);
 ```
 
 ### 2. Register to SIP Server
@@ -233,7 +233,7 @@ if (ret != 0) {
 // Method 1: Manual event loop (without worker thread)
 while (running) {
     // Process SIP events (100ms timeout)
-    int ret = lws_client_loop(client, 100);
+    int ret = lws_agent_loop(client, 100);
     if (ret < 0) {
         fprintf(stderr, "Error: %s\n", lws_error_string(ret));
         break;
@@ -241,7 +241,7 @@ while (running) {
 }
 
 // Method 2: Use worker thread (set use_worker_thread=1 in config)
-// Client will automatically process events in background, no need to call lws_client_loop
+// Client will automatically process events in background, no need to call lws_agent_loop
 ```
 
 ### 7. Cleanup
@@ -251,10 +251,10 @@ while (running) {
 lws_uac_unregister(client);
 
 // Stop client
-lws_client_stop(client);
+lws_agent_stop(client);
 
 // Destroy client
-lws_client_destroy(client);
+lws_agent_destroy(client);
 ```
 
 ## CLI Tool Usage
@@ -283,11 +283,11 @@ Supported platforms:
 
 ### Core API
 
-- `lws_client_create()` - Create SIP client
-- `lws_client_start()` - Start client
-- `lws_client_stop()` - Stop client
-- `lws_client_destroy()` - Destroy client
-- `lws_client_loop()` - Event loop (manual mode)
+- `lws_agent_create()` - Create SIP agent
+- `lws_agent_start()` - Start client
+- `lws_agent_stop()` - Stop client
+- `lws_agent_destroy()` - Destroy client
+- `lws_agent_loop()` - Event loop (manual mode)
 
 ### UAC API
 

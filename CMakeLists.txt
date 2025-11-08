@@ -14,8 +14,30 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
+# ============================================================
+# Feature Options
+# ============================================================
+option(ENABLE_MQTT "Enable MQTT transport support" OFF)
+option(ENABLE_FILE "Enable file-based media backend" ON)
+option(ENABLE_MEMORY "Enable memory-based media backend" OFF)
+option(ENABLE_DEVICE "Enable audio/video device backend" OFF)
+
+message(STATUS "Feature configuration:")
+message(STATUS "  MQTT transport: ${ENABLE_MQTT}")
+message(STATUS "  File backend: ${ENABLE_FILE}")
+message(STATUS "  Memory backend: ${ENABLE_MEMORY}")
+message(STATUS "  Device backend: ${ENABLE_DEVICE}")
+
 # Platform-specific settings for media-server libraries
-set(MEDIA_PLATFORM "debug.-linux64")
+if(APPLE)
+    set(MEDIA_PLATFORM "debug.darwin")
+elseif(UNIX)
+    set(MEDIA_PLATFORM "debug.linux64")
+elseif(WIN32)
+    set(MEDIA_PLATFORM "debug.win64")
+else()
+    message(FATAL_ERROR "Unsupported platform")
+endif()
 
 # ============================================================
 # Include Directories
@@ -45,7 +67,7 @@ set(COMMON_INCLUDES
 # ============================================================
 # Library Paths
 # ============================================================
-set(OSAL_LIBS ${CMAKE_SOURCE_DIR}/osal/lib/liblwsosal.a)
+set(OSAL_LIBS ${CMAKE_SOURCE_DIR}/osal/build/lib/liblwsosal.a)
 set(LIB_SIP ${CMAKE_SOURCE_DIR}/3rds/media-server/libsip/${MEDIA_PLATFORM}/libsip.a)
 set(LIB_RTP ${CMAKE_SOURCE_DIR}/3rds/media-server/librtp/${MEDIA_PLATFORM}/librtp.a)
 set(LIB_RTSP ${CMAKE_SOURCE_DIR}/3rds/media-server/librtsp/${MEDIA_PLATFORM}/librtsp.a)
@@ -66,7 +88,7 @@ set(COMMON_LIBS
     ${LIB_MOV}
     ${LIB_FLV}
     ${LIB_HTTP}
-    ${LIB_AIO}
+    # ${LIB_AIO}   # TODO: Fix libaio compilation issues (optional)
     ${LIB_ICE}
     ${LIB_SDK}
     ${OSAL_LIBS}
@@ -77,17 +99,8 @@ set(COMMON_LIBS
 # lwsip Library
 # ============================================================
 set(LWS_SOURCES
-    src/lws_client.c
-    src/lws_uac.c
-    src/lws_uas.c
-    src/lws_session.c
-    src/lws_transport_tcp.c
-    src/lws_transport_mqtt.c
-    src/lws_payload.c
-    src/lws_media.c
-    src/lws_ice.c
-    src/lws_error.c
-    src/lws_sip_timer.c
+    src/lws_agent.c
+    src/lws_trans_udp.c
 )
 
 add_library(lwsip_static STATIC ${LWS_SOURCES})
@@ -97,7 +110,25 @@ target_include_directories(lwsip_static PUBLIC
     ${COMMON_INCLUDES}
 )
 
-target_compile_definitions(lwsip_static PRIVATE __LWS_PTHREAD__)
+# Base compile definitions
+target_compile_definitions(lwsip_static PRIVATE __LWS_PTHREAD__ LWS_ENABLE_LOG DEBUG)
+
+# Feature-based compile definitions
+if(ENABLE_MQTT)
+    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_TRANSPORT_MQTT)
+endif()
+
+if(ENABLE_FILE)
+    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_FILE)
+endif()
+
+if(ENABLE_MEMORY)
+    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_MEMORY)
+endif()
+
+if(ENABLE_DEVICE)
+    target_compile_definitions(lwsip_static PUBLIC LWS_ENABLE_MEDIA_DEVICE)
+endif()
 
 target_link_libraries(lwsip_static
     ${COMMON_LIBS}
@@ -112,6 +143,6 @@ add_subdirectory(cmd)
 # Installation
 # ============================================================
 install(TARGETS lwsip_static DESTINATION lib)
-install(TARGETS lwsip-cli DESTINATION bin)
+# install(TARGETS lwsip-cli DESTINATION bin)  # Commented out - lwsip_cli.c has been deleted
 install(DIRECTORY include/ DESTINATION include/lwsip
     FILES_MATCHING PATTERN "*.h")

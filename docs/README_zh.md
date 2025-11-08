@@ -63,7 +63,7 @@ make
 ```
 lwsip/
 ├── include/              # 公共头文件
-│   ├── lws_client.h     # SIP客户端核心接口
+│   ├── lws_agent.h     # SIP客户端核心接口
 │   ├── lws_uac.h        # User Agent Client
 │   ├── lws_uas.h        # User Agent Server
 │   ├── lws_session.h    # RTP会话管理
@@ -75,7 +75,7 @@ lwsip/
 │   └── lws_error.h      # 错误码定义
 │
 ├── src/                 # 实现文件
-│   ├── lws_client.c     # SIP客户端实现
+│   ├── lws_agent.c     # SIP客户端实现
 │   ├── lws_uac.c        # UAC实现
 │   ├── lws_uas.c        # UAS实现
 │   ├── lws_session.c    # RTP会话实现
@@ -115,7 +115,7 @@ lwsip/
 ### 1. 创建SIP客户端
 
 ```c
-#include "lws_client.h"
+#include "lws_agent.h"
 
 // 配置客户端
 lws_config_t config = {
@@ -132,7 +132,7 @@ lws_config_t config = {
 };
 
 // 设置回调
-lws_client_handler_t handler = {
+lws_agent_handler_t handler = {
     .on_reg_state = on_reg_state,
     .on_call_state = on_call_state,
     .on_incoming_call = on_incoming_call,
@@ -141,14 +141,14 @@ lws_client_handler_t handler = {
 };
 
 // 创建客户端
-lws_client_t* client = lws_client_create(&config, &handler);
+lws_agent_t* agent = lws_agent_create(&config, &handler);
 if (!client) {
     fprintf(stderr, "Failed to create client\n");
     return -1;
 }
 
 // 启动客户端
-lws_client_start(client);
+lws_agent_start(client);
 ```
 
 ### 2. 注册到SIP服务器
@@ -233,7 +233,7 @@ if (ret != 0) {
 // 方式1: 手动事件循环（不使用worker线程）
 while (running) {
     // 处理SIP事件（100ms超时）
-    int ret = lws_client_loop(client, 100);
+    int ret = lws_agent_loop(client, 100);
     if (ret < 0) {
         fprintf(stderr, "Error: %s\n", lws_error_string(ret));
         break;
@@ -241,7 +241,7 @@ while (running) {
 }
 
 // 方式2: 使用worker线程（在config中设置use_worker_thread=1）
-// 客户端会自动在后台处理事件，无需手动调用lws_client_loop
+// 客户端会自动在后台处理事件，无需手动调用lws_agent_loop
 ```
 
 ### 7. 清理资源
@@ -251,10 +251,10 @@ while (running) {
 lws_uac_unregister(client);
 
 // 停止客户端
-lws_client_stop(client);
+lws_agent_stop(client);
 
 // 销毁客户端
-lws_client_destroy(client);
+lws_agent_destroy(client);
 ```
 
 ## CLI工具使用
@@ -283,11 +283,11 @@ lwsip使用OSAL实现跨平台支持，详见 [osal/README.md](osal/README.md)
 
 ### 核心API
 
-- `lws_client_create()` - 创建SIP客户端
-- `lws_client_start()` - 启动客户端
-- `lws_client_stop()` - 停止客户端
-- `lws_client_destroy()` - 销毁客户端
-- `lws_client_loop()` - 事件循环（手动模式）
+- `lws_agent_create()` - 创建SIP客户端
+- `lws_agent_start()` - 启动客户端
+- `lws_agent_stop()` - 停止客户端
+- `lws_agent_destroy()` - 销毁客户端
+- `lws_agent_loop()` - 事件循环（手动模式）
 
 ### UAC API
 

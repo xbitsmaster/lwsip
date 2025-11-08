@@ -5,8 +5,12 @@ cmake-build-*/
 # OSAL
 build_osal/
 
+# logs
+logs/
+
 # 3rd party libraries (managed by git submodules)
 # Note: Submodules are tracked by .gitmodules file
+3rds/
 
 # CMake generated files (in build directory)
 CMakeCache.txt
