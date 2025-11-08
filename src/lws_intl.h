@@ -103,10 +103,20 @@ int lws_trans_parse_addr(const char* addr_str, struct sockaddr_in* addr);
 lws_trans_t* lws_trans_udp_create(const lws_trans_config_t* config,
                                    const lws_trans_handler_t* handler);
 
+/**
+ * @brief 创建MQTT传输实例
+ * @param config 传输配置
+ * @param handler 事件处理器
+ * @return Transport实例指针，失败返回NULL
+ */
+#ifdef TRANS_MQTT
+lws_trans_t* lws_trans_mqtt_create(const lws_trans_config_t* config,
+                                    const lws_trans_handler_t* handler);
+#endif
+
 /* 未来扩展的传输类型：
  * lws_trans_t* lws_trans_tcp_create(...);
  * lws_trans_t* lws_trans_tls_create(...);
- * lws_trans_t* lws_trans_mqtt_create(...);
  */
 
 #endif /* __LWS_INTL_H__ */
