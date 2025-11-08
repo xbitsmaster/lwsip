@@ -140,6 +140,11 @@ target_link_libraries(lwsip_static
 add_subdirectory(cmd)
 
 # ============================================================
+# Tests
+# ============================================================
+add_subdirectory(tests)
+
+# ============================================================
 # Installation
 # ============================================================
 install(TARGETS lwsip_static DESTINATION lib)
