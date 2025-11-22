@@ -65,3 +65,7 @@ lwsip
 # OS files
 .DS_Store
 Thumbs.db
+
+# Media recording files (runtime generated)
+media/*_record.wav
+media/*_record.mp4

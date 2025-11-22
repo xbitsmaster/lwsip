@@ -84,44 +84,33 @@ echo "  录音文件: $RECORD_FILE"
 echo "========================================"
 
 # pjsua 可执行文件路径
-PJSUA="${PROJECT_DIR}/3rds/pjsip/pjsip-apps/bin/pjsua-aarch64-apple-darwin24.6.0"
+PJSUA=pjsua
 
-# 检查 pjsua 是否存在
-if [ ! -f "$PJSUA" ]; then
-    echo "错误: pjsua 不存在: $PJSUA"
-    exit 1
-fi
+# 运行 pjsua，添加以下参数确保正常工作：
+# --duration=300: 运行5分钟（300秒）
+# --max-calls=4: 最大并发呼叫数（编译时限制）
+# --snd-auto-close=0: 保持音频设备打开
+echo ""
+echo "提示: pjsua 将运行5分钟，按 Ctrl+C 可提前停止"
+echo ""
 
-# 执行注册（使用 expect 保持运行）
-# 如果没有 expect，使用输入重定向让 pjsua 等待
-if command -v expect &> /dev/null; then
-    # 使用 expect 保持 pjsua 运行
-    expect <<EOF
-spawn "$PJSUA" --id "sip:${USER}@${SERVER}" \\
-               --registrar "sip:${SERVER}" \\
-               --realm "*" \\
-               --username "${USER}" \\
-               --password "${PASSWORD}" \\
-               --local-port=${LOCAL_PORT} \\
-               --auto-answer=${AUTO_ANSWER} \\
-               --play-file="${PLAY_FILE}" \\
-               --auto-play \\
-               --rec-file="${RECORD_FILE}" \\
-               --auto-rec
-interact
-EOF
-else
-    # 使用输入重定向保持运行（等待用户按 Ctrl+C）
-    echo "等待来电... 按 Ctrl+C 退出"
-    cat | "$PJSUA" --id "sip:${USER}@${SERVER}" \
-                   --registrar "sip:${SERVER}" \
-                   --realm "*" \
-                   --username "${USER}" \
-                   --password "${PASSWORD}" \
-                   --local-port=${LOCAL_PORT} \
-                   --auto-answer=${AUTO_ANSWER} \
-                   --play-file="${PLAY_FILE}" \
-                   --auto-play \
-                   --rec-file="${RECORD_FILE}" \
-                   --auto-rec
-fi
+# 使用 tail -f /dev/null 来保持 stdin 打开，防止 pjsua 因读到 EOF 而退出
+(tail -f /dev/null) | $PJSUA --id "sip:${USER}@${SERVER}" \
+               --registrar "sip:${SERVER}" \
+               --realm "*" \
+               --username "${USER}" \
+               --password "${PASSWORD}" \
+               --local-port=${LOCAL_PORT} \
+               --auto-answer=${AUTO_ANSWER} \
+               --play-file="${PLAY_FILE}" \
+               --auto-play \
+               --rec-file="${RECORD_FILE}" \
+               --auto-rec \
+               --duration=300 \
+               --max-calls=4 \
+               --snd-auto-close=0
+
+echo ""
+echo "========================================"
+echo "pjsua 已退出"
+echo "========================================"
