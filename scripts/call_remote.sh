@@ -1,88 +1,125 @@
 #!/bin/bash
+# call_remote.sh - 使用pjsua发起SIP呼叫并录音
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+MEDIA_DIR="${PROJECT_ROOT}/media"
+
+# 使用系统pjsua
+if ! command -v pjsua &> /dev/null; then
+    echo "错误: 找不到pjsua命令，请先安装 pjsip"
+    exit 1
+fi
+PJSUA="pjsua"
 
 # 默认配置
 DEFAULT_SERVER="198.19.249.149"
 DEFAULT_PASSWORD="1234"
-DEFAULT_LOCAL_PORT=5060
-
-# 音频文件配置
-MEDIA_DIR="${PROJECT_DIR}/media"
-PLAY_FILE="${MEDIA_DIR}/test_audio_pcmu.wav"
-RECORD_FILE="${MEDIA_DIR}/call_record.wav"
-
-# 显示使用说明
-usage() {
-    echo "Usage: $0 <caller> <callee> [server] [password]"
-    echo ""
-    echo "参数说明:"
-    echo "  caller      主叫号码 (必填)"
-    echo "  callee      被叫号码 (必填)"
-    echo "  server      SIP服务器地址 (可选，默认: $DEFAULT_SERVER)"
-    echo "  password    主叫密码 (可选，默认: $DEFAULT_PASSWORD)"
-    echo ""
-    echo "音频配置:"
-    echo "  播放文件: ${PLAY_FILE}"
-    echo "  录音文件: ${RECORD_FILE}"
-    echo ""
-    echo "示例:"
-    echo "  $0 1000 1001"
-    echo "  $0 1000 1002 198.19.249.149"
-    echo "  $0 1000 1003 198.19.249.149 5678"
-    exit 1
-}
-
-# 检查参数数量
-if [ $# -lt 2 ]; then
-    echo "错误: 缺少必要参数"
-    echo ""
-    usage
-fi
+DEFAULT_LOCAL_PORT=5065
+DEFAULT_DURATION=30
 
 # 解析参数
-CALLER=$1
-CALLEE=$2
-SERVER=${3:-$DEFAULT_SERVER}
-PASSWORD=${4:-$DEFAULT_PASSWORD}
-
-# 检查播放文件是否存在
-if [ ! -f "$PLAY_FILE" ]; then
-    echo "错误: 播放文件不存在: $PLAY_FILE"
+if [ $# -lt 2 ]; then
+    echo "用法: $0 <主叫号码> <被叫号码> [服务器IP] [密码] [本地端口] [通话时长秒]"
+    echo "示例: $0 1000 1001 198.19.249.149 1234 5065 30"
     exit 1
 fi
 
-# 确保 media 目录存在
-mkdir -p "$MEDIA_DIR"
+CALLER="$1"
+CALLEE="$2"
+SERVER="${3:-$DEFAULT_SERVER}"
+PASSWORD="${4:-$DEFAULT_PASSWORD}"
+LOCAL_PORT="${5:-$DEFAULT_LOCAL_PORT}"
+DURATION="${6:-$DEFAULT_DURATION}"
 
-# 清理旧的录音文件
+# 音频文件
+PLAY_FILE="${MEDIA_DIR}/test_audio_pcmu.wav"
+RECORD_FILE="${MEDIA_DIR}/call_remote_record.wav"
+
+# 清理旧录音文件
 if [ -f "$RECORD_FILE" ]; then
-    echo "清理旧的录音文件: $RECORD_FILE"
     rm -f "$RECORD_FILE"
+    echo "清理旧录音文件: $RECORD_FILE"
 fi
 
-# 显示呼叫信息
 echo "========================================"
-echo "正在发起呼叫..."
+echo "使用 pjsua 发起呼叫"
 echo "  主叫: $CALLER"
 echo "  被叫: $CALLEE"
 echo "  服务器: $SERVER"
+echo "  本地端口: $LOCAL_PORT"
 echo "  播放文件: $PLAY_FILE"
 echo "  录音文件: $RECORD_FILE"
+echo "  通话时长: ${DURATION}秒"
 echo "========================================"
 
-# 执行呼叫
-pjsua --id "sip:${CALLER}@${SERVER}" \
-      --registrar "sip:${SERVER}" \
-      --realm "*" \
-      --username "${CALLER}" \
-      --password "${PASSWORD}" \
-      --local-port=${DEFAULT_LOCAL_PORT} \
-      --duration=15 \
-      --play-file="${PLAY_FILE}" \
-      --auto-play \
-      --rec-file="${RECORD_FILE}" \
-      --auto-rec \
-      "sip:${CALLEE}@${SERVER}"
+echo "开始呼叫..."
+
+# 创建命名管道用于发送命令
+FIFO="/tmp/pjsua_fifo_$$"
+mkfifo "$FIFO"
+
+# 后台运行pjsua
+$PJSUA --id "sip:${CALLER}@${SERVER}" \
+        --registrar "sip:${SERVER}" \
+        --username "${CALLER}" \
+        --password "${PASSWORD}" \
+        --realm "${SERVER}" \
+        --local-port=${LOCAL_PORT} \
+        --play-file="${PLAY_FILE}" \
+        --auto-play \
+        --rec-file="${RECORD_FILE}" \
+        --auto-rec \
+        --duration=$((DURATION + 15)) \
+        --max-calls=4 \
+        --snd-auto-close=0 \
+        --null-audio \
+        < "$FIFO" &
+
+PJSUA_PID=$!
+
+# 发送命令到pjsua
+(
+    # 等待注册完成
+    sleep 5
+
+    # 发起呼叫
+    echo "m"
+    echo "sip:${CALLEE}@${SERVER}"
+
+    # 等待通话时长
+    sleep ${DURATION}
+
+    # 挂断
+    echo "h"
+
+    # 退出
+    sleep 1
+    echo "q"
+) > "$FIFO" &
+
+# 等待pjsua结束
+wait $PJSUA_PID
+
+# 清理命名管道
+rm -f "$FIFO"
+
+echo ""
+echo "========================================"
+echo "通话结束"
+echo "========================================"
+
+# 检查录音文件
+if [ -f "$RECORD_FILE" ]; then
+    FILE_SIZE=$(stat -f%z "$RECORD_FILE" 2>/dev/null || stat -c%s "$RECORD_FILE" 2>/dev/null)
+    echo "录音文件: $RECORD_FILE"
+    echo "文件大小: ${FILE_SIZE} 字节"
+    if [ "$FILE_SIZE" -gt 1000 ]; then
+        echo "✓ 录音成功"
+    else
+        echo "✗ 录音文件过小，可能录音失败"
+    fi
+else
+    echo "✗ 未找到录音文件"
+fi

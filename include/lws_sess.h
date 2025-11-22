@@ -95,6 +95,14 @@ typedef enum {
     LWS_MEDIA_DIR_INACTIVE          /**< 不活动 */
 } lws_media_dir_t;
 
+/**
+ * @brief 媒体传输模式
+ */
+typedef enum {
+    LWS_TRANSPORT_MODE_ICE,         /**< ICE模式（使用ICE协商NAT穿透） */
+    LWS_TRANSPORT_MODE_RTP_DIRECT   /**< RTP直连模式（不使用ICE，直接RTP通信或通过TURN中转） */
+} lws_transport_mode_t;
+
 /* 前向声明 */
 typedef struct lws_sess_t lws_sess_t;
 
@@ -208,7 +216,7 @@ typedef struct {
  * @brief 会话配置
  */
 typedef struct {
-    /* ICE配置 */
+    /* ICE配置 (可选，仅当远程SDP包含ICE属性时使用) */
     const char* stun_server;        /**< STUN服务器地址 */
     uint16_t stun_port;             /**< STUN端口 */
     const char* turn_server;        /**< TURN服务器地址（可选） */

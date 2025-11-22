@@ -93,6 +93,12 @@ struct lws_agent_t {
     /* Authentication credentials */
     char username[64];
     char password[128];
+
+    /* Media session template configuration */
+    lws_dev_t* audio_capture_dev;    /**< Audio capture device (shared by all dialogs) */
+    lws_dev_t* audio_playback_dev;   /**< Audio playback device (shared by all dialogs) */
+    lws_dev_t* audio_record_dev;     /**< Audio recording device (shared by all dialogs) */
+    int audio_codec;                 /**< Audio codec for all sessions */
 };
 
 /* ========================================
@@ -520,12 +526,18 @@ static int sip_uas_oninvite(void* param, const struct sip_message_t* req,
         dlg->remote_sdp[len] = '\0';
     }
 
-    /* 创建媒体会话 (UAS) */
+    /* 创建媒体会话 (UAS, 使用agent的设备配置) */
     lws_sess_config_t sess_config;
     memset(&sess_config, 0, sizeof(sess_config));
     sess_config.enable_audio = 1;
     sess_config.enable_video = 0;
-    /* TODO: 可以从agent config中获取STUN/TURN服务器配置 */
+    sess_config.media_dir = LWS_MEDIA_DIR_SENDRECV;  /* 双向媒体 */
+
+    /* Copy device references from agent */
+    sess_config.audio_capture_dev = agent->audio_capture_dev;
+    sess_config.audio_playback_dev = agent->audio_playback_dev;
+    sess_config.audio_record_dev = agent->audio_record_dev;
+    sess_config.audio_codec = agent->audio_codec;
 
     lws_sess_handler_t sess_handler;
     memset(&sess_handler, 0, sizeof(sess_handler));
@@ -1060,6 +1072,24 @@ int lws_agent_loop(lws_agent_t* agent, int timeout_ms)
         return ret;
     }
 
+    /* Drive all dialog media sessions */
+    struct list_head *pos;
+    lws_dialog_intl_t* dlg;
+    int dialog_count = 0;
+
+    list_for_each(pos, &agent->dialogs) {
+        dlg = list_entry(pos, lws_dialog_intl_t, list_node);
+        if (dlg->sess) {
+            dialog_count++;
+            lws_sess_loop(dlg->sess, 1);  /* Short timeout since we're iterating */
+        }
+    }
+
+    static int log_counter = 0;
+    if (dialog_count > 0 && (log_counter++ % 100) == 0) {
+        lws_log_debug("[AGENT] Driving %d dialog sessions (log every 100 loops)\n", dialog_count);
+    }
+
     return LWS_OK;
 }
 
@@ -1528,12 +1558,19 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri)
         return NULL;
     }
 
-    /* 创建媒体会话 */
+    /* 创建媒体会话 (使用agent的设备配置) */
     lws_sess_config_t sess_config;
     memset(&sess_config, 0, sizeof(sess_config));
     /* TODO: 配置STUN服务器等参数 */
     sess_config.enable_audio = 1;
     sess_config.enable_video = 0;
+    sess_config.media_dir = LWS_MEDIA_DIR_SENDRECV;  /* 双向媒体 */
+
+    /* Copy device references from agent */
+    sess_config.audio_capture_dev = agent->audio_capture_dev;
+    sess_config.audio_playback_dev = agent->audio_playback_dev;
+    sess_config.audio_record_dev = agent->audio_record_dev;
+    sess_config.audio_codec = agent->audio_codec;
 
     lws_sess_handler_t sess_handler;
     memset(&sess_handler, 0, sizeof(sess_handler));
@@ -2132,6 +2169,26 @@ const char* lws_dialog_state_name(lws_dialog_state_t state)
         case LWS_DIALOG_STATE_FAILED:     return "FAILED";
         default:                          return "UNKNOWN";
     }
+}
+
+/**
+ * @brief Set media devices for all dialog sessions
+ */
+void lws_agent_set_media_devices(
+    lws_agent_t* agent,
+    lws_dev_t* audio_capture,
+    lws_dev_t* audio_playback,
+    lws_dev_t* audio_record,
+    int audio_codec)
+{
+    if (!agent) {
+        return;
+    }
+
+    agent->audio_capture_dev = audio_capture;
+    agent->audio_playback_dev = audio_playback;
+    agent->audio_record_dev = audio_record;
+    agent->audio_codec = audio_codec;
 }
 
 /**

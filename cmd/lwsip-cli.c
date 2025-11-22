@@ -163,12 +163,13 @@ static void on_remote_sdp(
 
     printf("[CLI] Received remote SDP (%zu bytes)\n", strlen(sdp));
 
-    /* Start media session */
-    if (g_app.sess) {
+    /* 注意：lws_agent内部已经处理了远程SDP设置和ICE启动，
+     * 这里不需要重复调用，否则会导致崩溃 */
+    /* if (g_app.sess) {
         printf("[CLI] Starting media session...\n");
         lws_sess_set_remote_sdp(g_app.sess, sdp);
         lws_sess_start_ice(g_app.sess);
-    }
+    } */
 }
 
 /**
@@ -500,6 +501,15 @@ static int init_lwsip(void) {
 
     printf("[CLI] SIP agent created\n");
 
+    /* Configure media devices for all dialog sessions */
+    lws_agent_set_media_devices(
+        g_app.agent,
+        g_app.audio_capture,
+        g_app.audio_playback,
+        g_app.audio_recorder,
+        8  /* PCMA codec */
+    );
+
     /* Start agent (will auto-register if configured) */
     printf("[CLI] Starting agent (registering to %s:%d as %s)...\n",
            registrar, port, g_app.username);
@@ -692,8 +702,8 @@ int main(int argc, char* argv[]) {
             lws_agent_loop(g_app.agent, 10);  /* 10ms timeout */
         }
 
-        /* Run session event loop */
-        if (g_app.sess && g_app.in_call) {
+        /* Run session event loop (always run to process ICE packets) */
+        if (g_app.sess) {
             lws_sess_loop(g_app.sess, 10);  /* 10ms timeout */
         }
 

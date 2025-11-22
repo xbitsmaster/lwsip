@@ -83,8 +83,12 @@ echo "  播放文件: $PLAY_FILE"
 echo "  录音文件: $RECORD_FILE"
 echo "========================================"
 
-# pjsua 可执行文件路径
-PJSUA=pjsua
+# 使用系统pjsua
+if ! command -v pjsua &> /dev/null; then
+    echo "错误: 找不到pjsua命令，请先安装 pjsip"
+    exit 1
+fi
+PJSUA="pjsua"
 
 # 运行 pjsua，添加以下参数确保正常工作：
 # --duration=300: 运行5分钟（300秒）
@@ -108,7 +112,8 @@ echo ""
                --auto-rec \
                --duration=300 \
                --max-calls=4 \
-               --snd-auto-close=0
+               --snd-auto-close=0 \
+               --null-audio
 
 echo ""
 echo "========================================"

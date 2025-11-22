@@ -16,6 +16,8 @@
 #include <string.h>
 #include <time.h>
 #include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <sys/time.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -64,6 +66,14 @@ struct lws_sess_t {
     /* State */
     lws_sess_state_t state;
 
+    /* Runtime transport mode (determined from remote SDP) */
+    lws_transport_mode_t active_transport_mode;  /* 当前使用的传输模式 */
+    int transport_mode_determined;                /* 传输模式是否已确定 */
+
+    /* Network */
+    int media_socket;               /* UDP socket for RTP/STUN */
+    uint16_t local_port;            /* Local port for media */
+
     /* ICE layer (from libice) */
     struct ice_agent_t* ice_agent;
     int ice_gathering_done;
@@ -99,6 +109,7 @@ struct lws_sess_t {
 static void change_state(lws_sess_t* sess, lws_sess_state_t new_state);
 static int generate_ice_credentials(lws_sess_t* sess);
 static int generate_local_sdp(lws_sess_t* sess);
+static int get_local_ipv4(struct sockaddr_in* addr);
 
 /* ========================================
  * Helper Functions
@@ -134,6 +145,35 @@ static void change_state(lws_sess_t* sess, lws_sess_state_t new_state)
         sess->handler.on_state_changed(sess, old_state, new_state,
                                        sess->handler.userdata);
     }
+}
+
+/**
+ * @brief 检测 SDP 中是否包含 ICE 属性
+ * @param sdp SDP 字符串
+ * @return 1 表示包含 ICE 属性，0 表示不包含
+ */
+static int sdp_has_ice_attributes(const char* sdp)
+{
+    if (!sdp) {
+        return 0;
+    }
+
+    /* 检查是否有 ice-ufrag 属性 */
+    if (strstr(sdp, "a=ice-ufrag:") != NULL) {
+        return 1;
+    }
+
+    /* 检查是否有 ice-pwd 属性 */
+    if (strstr(sdp, "a=ice-pwd:") != NULL) {
+        return 1;
+    }
+
+    /* 检查是否有 candidate 属性 */
+    if (strstr(sdp, "a=candidate:") != NULL) {
+        return 1;
+    }
+
+    return 0;
 }
 
 /**
@@ -204,16 +244,31 @@ static int payload_clock_rate(lws_rtp_payload_t payload)
 static int on_ice_send(void* param, int protocol, const struct sockaddr* local,
                        const struct sockaddr* remote, const void* data, int bytes)
 {
-    LWS_UNUSED(param);
+    lws_sess_t* sess = (lws_sess_t*)param;
     LWS_UNUSED(protocol);
     LWS_UNUSED(local);
-    LWS_UNUSED(remote);
-    LWS_UNUSED(data);
-    LWS_UNUSED(bytes);
 
-    /* TODO: Send data through transport layer (lws_trans) */
-    /* For now, we just log it */
-    lws_log_debug("[SESS] ICE send request: %d bytes", bytes);
+    if (!sess || sess->media_socket < 0 || !remote || !data || bytes <= 0) {
+        return -1;
+    }
+
+    /* Send via UDP socket */
+    ssize_t sent = sendto(sess->media_socket, data, bytes, 0, remote,
+                          remote->sa_family == AF_INET ? sizeof(struct sockaddr_in) :
+                                                          sizeof(struct sockaddr_in6));
+
+    if (sent < 0) {
+        lws_log_error(0, "[SESS] ICE send failed: %s\n", strerror(errno));
+        return -1;
+    }
+
+    if (sent != bytes) {
+        lws_log_warn(0, "[SESS] ICE partial send: %zd/%d bytes\n", sent, bytes);
+    }
+
+    lws_log_debug("[SESS] ICE sent %zd bytes to %s:%d", sent,
+                  inet_ntoa(((struct sockaddr_in*)remote)->sin_addr),
+                  ntohs(((struct sockaddr_in*)remote)->sin_port));
 
     return 0;
 }
@@ -363,48 +418,55 @@ static int generate_local_sdp(lws_sess_t* sess)
 
     uint64_t session_id = (uint64_t)time(NULL);
 
-    /* SDP header */
+    /* Get local IP address for SDP */
+    struct sockaddr_in local_addr;
+    char local_ip[INET_ADDRSTRLEN];
+    if (get_local_ipv4(&local_addr) == 0) {
+        inet_ntop(AF_INET, &local_addr.sin_addr, local_ip, sizeof(local_ip));
+    } else {
+        /* Fallback to 0.0.0.0 if we can't get local IP */
+        strcpy(local_ip, "0.0.0.0");
+        lws_log_warn(0, "[SESS] Failed to get local IP for SDP, using 0.0.0.0\n");
+    }
+
+    /* SDP header with real local IP */
     n = snprintf(p, remain,
         "v=0\r\n"
-        "o=lwsip %llu %llu IN IP4 0.0.0.0\r\n"
+        "o=lwsip %llu %llu IN IP4 %s\r\n"
         "s=lwsip media session\r\n"
-        "c=IN IP4 0.0.0.0\r\n"
+        "c=IN IP4 %s\r\n"
         "t=0 0\r\n",
         (unsigned long long)session_id,
-        (unsigned long long)session_id);
+        (unsigned long long)session_id,
+        local_ip,
+        local_ip);
 
     if (n < 0 || n >= remain) return -1;
     p += n; remain -= n;
 
-    /* Audio media line */
+    /* Audio media line - use real socket port instead of dummy port 9 */
     if (sess->config.enable_audio) {
+        /* Basic media line and RTP attributes */
         n = snprintf(p, remain,
-            "m=audio 9 RTP/AVP %d\r\n"
+            "m=audio %d RTP/AVP %d\r\n"
             "a=rtpmap:%d %s/%d\r\n"
-            "a=%s\r\n"
-            "a=ice-ufrag:%s\r\n"
-            "a=ice-pwd:%s\r\n",
+            "a=%s\r\n",
+            sess->local_port,  /* Use real socket port */
             (int)sess->config.audio_codec,
             (int)sess->config.audio_codec,
             payload_to_name(sess->config.audio_codec),
             payload_clock_rate(sess->config.audio_codec),
             sess->config.media_dir == LWS_MEDIA_DIR_SENDRECV ? "sendrecv" :
             sess->config.media_dir == LWS_MEDIA_DIR_SENDONLY ? "sendonly" :
-            sess->config.media_dir == LWS_MEDIA_DIR_RECVONLY ? "recvonly" : "inactive",
-            sess->local_ice_ufrag,
-            sess->local_ice_pwd);
+            sess->config.media_dir == LWS_MEDIA_DIR_RECVONLY ? "recvonly" : "inactive");
 
         if (n < 0 || n >= remain) return -1;
         p += n; remain -= n;
 
-        /* Add ICE candidates */
-        /* TODO: Iterate through ice_agent candidates and add them */
-        /* For now, add a dummy host candidate */
-        n = snprintf(p, remain,
-            "a=candidate:1 1 UDP 2130706431 127.0.0.1 9000 typ host\r\n");
-
-        if (n < 0 || n >= remain) return -1;
-        p += n; remain -= n;
+        /*
+         * 默认不添加 ICE 属性，适用于服务器中转模式
+         * 如果需要 ICE 模式，会在检测到远程 SDP 包含 ICE 后动态启用
+         */
     }
 
     lws_log_info("[SESS] Generated local SDP (%d bytes)",
@@ -443,29 +505,54 @@ lws_sess_t* lws_sess_create(const lws_sess_config_t* config,
     sess->handler = *handler;
     sess->state = LWS_SESS_STATE_IDLE;
 
-    /* Initialize random seed for ICE credentials */
-    srand((unsigned int)time(NULL));
-
-    /* Generate ICE credentials */
-    generate_ice_credentials(sess);
-
-    /* Create ICE agent */
-    struct ice_agent_handler_t ice_handler;
-    ice_handler.send = on_ice_send;
-    ice_handler.ondata = on_ice_data;
-    ice_handler.ongather = on_ice_gather;
-    ice_handler.onconnected = on_ice_connected;
-
-    sess->ice_agent = ice_agent_create(1, &ice_handler, sess);
-    if (!sess->ice_agent) {
-        lws_log_error(0, "[SESS] Failed to create ICE agent\n");
+    /* Create UDP socket for media (RTP/STUN) */
+    sess->media_socket = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sess->media_socket < 0) {
+        lws_log_error(0, "[SESS] Failed to create media socket: %s\n", strerror(errno));
         lws_free(sess);
         return NULL;
     }
 
-    /* Set local ICE credentials */
-    ice_agent_set_local_auth(sess->ice_agent, sess->local_ice_ufrag,
-                             sess->local_ice_pwd);
+    /* Set non-blocking */
+    int flags = fcntl(sess->media_socket, F_GETFL, 0);
+    fcntl(sess->media_socket, F_SETFL, flags | O_NONBLOCK);
+
+    /* Bind to any port (OS will assign) */
+    struct sockaddr_in local_addr;
+    memset(&local_addr, 0, sizeof(local_addr));
+    local_addr.sin_family = AF_INET;
+    local_addr.sin_addr.s_addr = INADDR_ANY;
+    local_addr.sin_port = 0;  /* Let OS assign port */
+
+    if (bind(sess->media_socket, (struct sockaddr*)&local_addr, sizeof(local_addr)) < 0) {
+        lws_log_error(0, "[SESS] Failed to bind media socket: %s\n", strerror(errno));
+        close(sess->media_socket);
+        lws_free(sess);
+        return NULL;
+    }
+
+    /* Get the assigned port */
+    socklen_t addr_len = sizeof(local_addr);
+    if (getsockname(sess->media_socket, (struct sockaddr*)&local_addr, &addr_len) == 0) {
+        sess->local_port = ntohs(local_addr.sin_port);
+        lws_log_info("[SESS] Media socket bound to port %d", sess->local_port);
+    } else {
+        lws_log_warn(0, "[SESS] Failed to get local port\n");
+        sess->local_port = 0;
+    }
+
+    /* Initialize random seed for credentials */
+    srand((unsigned int)time(NULL));
+
+    /*
+     * 默认不创建 ICE agent（服务器中转模式）
+     * 如果后续检测到远程 SDP 包含 ICE 属性，可以动态创建 ICE agent
+     * TODO: 实现动态ICE切换功能
+     */
+    sess->ice_agent = NULL;
+    sess->transport_mode_determined = 0;
+    sess->active_transport_mode = LWS_TRANSPORT_MODE_RTP_DIRECT;
+    lws_log_info("[SESS] Media session created (default: RTP direct mode)");
 
     /* Generate random SSRC */
     sess->audio_ssrc = (uint32_t)rand();
@@ -518,7 +605,8 @@ lws_sess_t* lws_sess_create(const lws_sess_config_t* config,
     }
 
     /* Create RTP payload decoder */
-    if (sess->config.enable_audio && sess->config.audio_playback_dev) {
+    /* Decoder needed if we have playback device OR recording device */
+    if (sess->config.enable_audio && (sess->config.audio_playback_dev || sess->config.audio_record_dev)) {
         struct rtp_payload_t payload_handler = {
             .alloc = rtp_alloc,
             .free = rtp_free,
@@ -539,6 +627,7 @@ lws_sess_t* lws_sess_create(const lws_sess_config_t* config,
             lws_free(sess);
             return NULL;
         }
+        lws_log_info("[SESS] Created RTP payload decoder\n");
     }
 
     sess->session_start_time = get_current_time_us();
@@ -578,6 +667,12 @@ void lws_sess_destroy(lws_sess_t* sess)
     /* Destroy ICE agent */
     if (sess->ice_agent) {
         ice_agent_destroy(sess->ice_agent);
+    }
+
+    /* Close media socket */
+    if (sess->media_socket >= 0) {
+        close(sess->media_socket);
+        sess->media_socket = -1;
     }
 
     /* Free session structure */
@@ -702,48 +797,23 @@ int lws_sess_gather_candidates(lws_sess_t* sess)
         return -1;
     }
 
-    lws_log_info("[SESS] Starting ICE candidate gathering");
+    /*
+     * 默认直接生成 SDP，不进行 ICE 候选收集
+     * 这适用于服务器中转模式（最常见的场景）
+     * 如果后续检测到远程 SDP 包含 ICE，会动态切换到 ICE 模式
+     */
+    lws_log_info("[SESS] Generating local SDP (without ICE gathering)");
 
     change_state(sess, LWS_SESS_STATE_GATHERING);
 
-    /* Add local host candidates */
-    /* Get local IP address */
-    struct sockaddr_in local_addr;
-    memset(&local_addr, 0, sizeof(local_addr));
-    local_addr.sin_family = AF_INET;
+    /* Generate SDP immediately */
+    if (generate_local_sdp(sess) == 0) {
+        change_state(sess, LWS_SESS_STATE_GATHERED);
 
-    if (get_local_ipv4(&local_addr) == 0) {
-        /* Add RTP candidate (component 1) */
-        local_addr.sin_port = htons(LWS_DEFAULT_RTP_PORT);
-        add_local_host_candidate(sess, 0, 1, (struct sockaddr*)&local_addr);
-
-        /* Add RTCP candidate (component 2) */
-        local_addr.sin_port = htons(LWS_DEFAULT_RTP_PORT + 1);
-        add_local_host_candidate(sess, 0, 2, (struct sockaddr*)&local_addr);
-    } else {
-        lws_log_error(0, "[SESS] Failed to get local IP address\n");
-    }
-
-    /* Start STUN/TURN gathering if configured */
-    if (sess->config.stun_server) {
-        struct sockaddr_in stun_addr;
-        memset(&stun_addr, 0, sizeof(stun_addr));
-        stun_addr.sin_family = AF_INET;
-        stun_addr.sin_port = htons(sess->config.stun_port ?
-                                    sess->config.stun_port : LWS_DEFAULT_STUN_PORT);
-        inet_pton(AF_INET, sess->config.stun_server, &stun_addr.sin_addr);
-
-        int turn = (sess->config.turn_server != NULL) ? 1 : 0;
-
-        ice_agent_gather(sess->ice_agent, (struct sockaddr*)&stun_addr,
-                        turn, 5000, /* timeout */
-                        turn, /* credential type */
-                        sess->config.turn_username,
-                        sess->config.turn_password);
-    } else {
-        /* No STUN server, gathering done immediately */
-        sess->ice_gathering_done = 1;
-        on_ice_gather(sess, 0);
+        /* Notify SDP ready */
+        if (sess->handler.on_sdp_ready) {
+            sess->handler.on_sdp_ready(sess, sess->local_sdp, sess->handler.userdata);
+        }
     }
 
     return 0;
@@ -811,6 +881,27 @@ int lws_sess_set_remote_sdp(lws_sess_t* sess, const char* sdp)
     lws_log_info("[SESS] Setting remote SDP (%zu bytes)", strlen(sdp));
     lws_log_debug("[SESS] Remote SDP:\n%s", sdp);
 
+    /* 根据远程 SDP 内容确定传输模式 */
+    if (!sess->transport_mode_determined) {
+        if (sdp_has_ice_attributes(sdp)) {
+            sess->active_transport_mode = LWS_TRANSPORT_MODE_ICE;
+            sess->transport_mode_determined = 1;
+            lws_log_info("[SESS] Detected ICE attributes in remote SDP - using ICE mode");
+        } else {
+            sess->active_transport_mode = LWS_TRANSPORT_MODE_RTP_DIRECT;
+            sess->transport_mode_determined = 1;
+            lws_log_info("[SESS] No ICE attributes in remote SDP - using RTP direct mode");
+        }
+    }
+
+    /* 如果是 RTP 直连模式，跳过 ICE 处理 */
+    if (sess->active_transport_mode == LWS_TRANSPORT_MODE_RTP_DIRECT) {
+        lws_log_info("[SESS] RTP direct mode - skipping ICE processing");
+        /* TODO: 解析 c= 行获取远程 IP 和 m= 行获取远程端口 */
+        return 0;
+    }
+
+    /* ICE 模式：解析 ICE 凭证和候选者 */
     /* Parse ICE credentials */
     if (parse_sdp_attribute(sdp, "ice-ufrag", ufrag, sizeof(ufrag)) == 0 &&
         parse_sdp_attribute(sdp, "ice-pwd", pwd, sizeof(pwd)) == 0) {
@@ -945,6 +1036,21 @@ int lws_sess_start_ice(lws_sess_t* sess)
         return -1;
     }
 
+    /* In RTP direct mode, skip ICE and go directly to connected state */
+    if (!sess->transport_mode_determined ||
+        sess->active_transport_mode == LWS_TRANSPORT_MODE_RTP_DIRECT) {
+        lws_log_info("[SESS] RTP direct mode - skipping ICE, going to CONNECTED");
+        change_state(sess, LWS_SESS_STATE_CONNECTED);
+
+        /* Notify connected callback */
+        if (sess->handler.on_connected) {
+            sess->handler.on_connected(sess, sess->handler.userdata);
+        }
+
+        return 0;
+    }
+
+    /* ICE mode - start ICE connectivity checks */
     lws_log_info("[SESS] Starting ICE connectivity checks");
 
     change_state(sess, LWS_SESS_STATE_CONNECTING);
@@ -953,7 +1059,7 @@ int lws_sess_start_ice(lws_sess_t* sess)
 }
 
 /**
- * @brief Session event loop (drives media sending)
+ * @brief Session event loop (drives media sending and receiving)
  */
 int lws_sess_loop(lws_sess_t* sess, int timeout_ms)
 {
@@ -962,6 +1068,56 @@ int lws_sess_loop(lws_sess_t* sess, int timeout_ms)
     }
 
     (void)timeout_ms;
+
+    /* Process incoming packets (STUN/RTP) from socket */
+    if (sess->media_socket >= 0) {
+        uint8_t buffer[2048];
+        struct sockaddr_in local_addr;
+        struct sockaddr_in remote_addr;
+        socklen_t addr_len;
+
+        /* Get local address for this socket */
+        addr_len = sizeof(local_addr);
+        getsockname(sess->media_socket, (struct sockaddr*)&local_addr, &addr_len);
+
+        /* Read all available packets (non-blocking) */
+        while (1) {
+            addr_len = sizeof(remote_addr);
+            ssize_t bytes = recvfrom(sess->media_socket, buffer, sizeof(buffer), 0,
+                                    (struct sockaddr*)&remote_addr, &addr_len);
+
+            if (bytes < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    /* No more data available */
+                    break;
+                } else {
+                    lws_log_error(0, "[SESS] recvfrom error: %s\n", strerror(errno));
+                    break;
+                }
+            } else if (bytes == 0) {
+                break;
+            }
+
+            /* Process received data */
+            if (sess->ice_agent) {
+                /* ICE mode: Feed data to ICE agent for processing */
+                ice_agent_input(sess->ice_agent, 0,
+                               (struct sockaddr*)&local_addr,
+                               (struct sockaddr*)&remote_addr,
+                               buffer, (int)bytes);
+            } else if (sess->active_transport_mode == LWS_TRANSPORT_MODE_RTP_DIRECT) {
+                /* RTP direct mode: Process RTP data directly */
+                if (sess->audio_decoder && bytes > 12) {
+                    /* Simple RTP packet validation (minimum RTP header is 12 bytes) */
+                    static int rtp_count = 0;
+                    if ((rtp_count++ % 50) == 0) {
+                        lws_log_info("[SESS] RTP direct mode: received packet %d bytes (log every 50)\n", (int)bytes);
+                    }
+                    rtp_payload_decode_input(sess->audio_decoder, buffer, (int)bytes);
+                }
+            }
+        }
+    }
 
     /* Only send media when connected */
     if (sess->state != LWS_SESS_STATE_CONNECTED) {

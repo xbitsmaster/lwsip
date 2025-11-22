@@ -18,6 +18,7 @@
 #include <stddef.h>
 #include "lws_defs.h"
 #include "lws_trans.h"
+#include "lws_dev.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -274,6 +275,22 @@ int lws_agent_stop(lws_agent_t* agent);
  * @return 0成功，-1失败
  */
 int lws_agent_loop(lws_agent_t* agent, int timeout_ms);
+
+/**
+ * @brief 设置Agent的媒体设备配置 (用于dialog session创建)
+ * @param agent Agent实例
+ * @param audio_capture 音频采集设备
+ * @param audio_playback 音频播放设备
+ * @param audio_record 音频录制设备
+ * @param audio_codec 音频编解码器
+ */
+void lws_agent_set_media_devices(
+    lws_agent_t* agent,
+    lws_dev_t* audio_capture,
+    lws_dev_t* audio_playback,
+    lws_dev_t* audio_record,
+    int audio_codec
+);
 
 /* ========================================
  * 呼叫控制API
