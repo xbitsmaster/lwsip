@@ -417,6 +417,7 @@ static int init_lwsip(void) {
     sess_config.audio_capture_dev = g_app.audio_capture;
     sess_config.audio_playback_dev = g_app.audio_playback;
     sess_config.audio_record_dev = g_app.audio_recorder;  /* May be NULL if not recording */
+    sess_config.media_dir = LWS_MEDIA_DIR_SENDRECV;        /* Enable bidirectional media */
 
     lws_sess_handler_t sess_handler = {
         .on_state_changed = on_sess_state_changed,

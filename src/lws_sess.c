@@ -409,6 +409,7 @@ static int generate_local_sdp(lws_sess_t* sess)
 
     lws_log_info("[SESS] Generated local SDP (%d bytes)",
                  (int)(p - sess->local_sdp));
+    lws_log_info("[SESS] Local SDP:\n%s", sess->local_sdp);
 
     return 0;
 }
