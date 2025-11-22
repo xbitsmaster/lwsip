@@ -81,6 +81,7 @@ add_executable(caller
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/src/lws_auth.c
     ${CMAKE_SOURCE_DIR}/src/lws_sess.c
     ${CMAKE_SOURCE_DIR}/src/lws_dev.c
     ${CMAKE_SOURCE_DIR}/src/lws_dev_file.c
@@ -115,6 +116,7 @@ add_executable(callee
     ${CMAKE_SOURCE_DIR}/src/lws_trans.c
     ${CMAKE_SOURCE_DIR}/src/lws_trans_udp.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/src/lws_auth.c
     ${CMAKE_SOURCE_DIR}/src/lws_sess.c
     ${CMAKE_SOURCE_DIR}/src/lws_dev.c
     ${CMAKE_SOURCE_DIR}/src/lws_dev_file.c
@@ -174,6 +176,7 @@ add_executable(lwsip_agent_test
     lwsip_agent_stub.c
     trans_stub.c
     ${CMAKE_SOURCE_DIR}/src/lws_agent.c
+    ${CMAKE_SOURCE_DIR}/src/lws_auth.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mem.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_mutex.c
     ${CMAKE_SOURCE_DIR}/osal/src/macos/lws_thread.c
@@ -205,8 +208,12 @@ target_include_directories(lwsip_sess_test PRIVATE
     ${TEST_INCLUDES}
 )
 
-# Link minimal dependencies for unit tests
+# Link dependencies including libice for ICE functions
 target_link_libraries(lwsip_sess_test
+    ${LIB_RTP}
+    ${LIB_ICE}
+    ${LIB_HTTP}
+    ${LIB_SDK}
     pthread
 )
 

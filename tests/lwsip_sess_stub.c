@@ -259,3 +259,23 @@ int rtp_onreceived_rtcp(void* rtp, const void* data, int len) {
     (void)len;
     return 0;
 }
+
+/* Stub for STUN timer functions */
+int stun_timer_start(void* stun, void* req, int timeout_ms, void* callback) {
+    (void)stun;
+    (void)req;
+    (void)timeout_ms;
+    (void)callback;
+    return 0;
+}
+
+void stun_timer_stop(void* stun, void* req) {
+    (void)stun;
+    (void)req;
+}
+
+/* Stub for ice_candidate_priority function */
+uint32_t ice_candidate_priority(void* candidate) {
+    (void)candidate;
+    return 2130706431; /* host candidate priority */
+}

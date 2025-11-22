@@ -20,6 +20,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <ifaddrs.h>
+#include <unistd.h>
 
 /* lwsip headers */
 #include "lws_sess.h"
@@ -34,6 +36,8 @@
 
 /* libice headers */
 #include "ice-agent.h"
+#include "ice-candidate.h"
+#include "stun-agent.h"
 #include "stun-proto.h"
 
 /* ========================================
@@ -324,10 +328,16 @@ static int rtp_packet(void* param, const void *packet, int bytes,
     lws_log_debug("[SESS] RTP packet decoded: %d bytes, ts=%u",
                   bytes, timestamp);
 
+    int samples = bytes / 2; /* Assuming 16-bit PCM */
+
     /* Write to playback device */
     if (sess->config.audio_playback_dev) {
-        int samples = bytes / 2; /* Assuming 16-bit PCM */
         lws_dev_write_audio(sess->config.audio_playback_dev, packet, samples);
+    }
+
+    /* Write to recording device (if configured) */
+    if (sess->config.audio_record_dev) {
+        lws_dev_write_audio(sess->config.audio_record_dev, packet, samples);
     }
 
     /* Update statistics */
@@ -578,6 +588,113 @@ void lws_sess_destroy(lws_sess_t* sess)
 /**
  * @brief Start gathering ICE candidates
  */
+/**
+ * @brief Get local IP address from network interfaces
+ * Returns the first non-loopback IPv4 address found
+ */
+static int get_local_ipv4(struct sockaddr_in* addr)
+{
+#ifdef __APPLE__
+    /* For macOS, use getifaddrs */
+    struct ifaddrs* ifaddr = NULL;
+    struct ifaddrs* ifa = NULL;
+    int found = 0;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        return -1;
+    }
+
+    /* Iterate through network interfaces */
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == NULL) {
+            continue;
+        }
+
+        /* Look for IPv4 non-loopback address */
+        if (ifa->ifa_addr->sa_family == AF_INET) {
+            struct sockaddr_in* sin = (struct sockaddr_in*)ifa->ifa_addr;
+
+            /* Skip loopback (127.x.x.x) */
+            if ((ntohl(sin->sin_addr.s_addr) & 0xFF000000) == 0x7F000000) {
+                continue;
+            }
+
+            /* Found a valid address */
+            memcpy(addr, sin, sizeof(*addr));
+            found = 1;
+            break;
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return found ? 0 : -1;
+#else
+    /* For Linux/other platforms */
+    /* Simplified version: just use any non-loopback interface */
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0) {
+        return -1;
+    }
+
+    /* Connect to a remote address to determine local IP */
+    struct sockaddr_in remote;
+    memset(&remote, 0, sizeof(remote));
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(53); /* DNS port */
+    inet_pton(AF_INET, "8.8.8.8", &remote.sin_addr);
+
+    if (connect(sock, (struct sockaddr*)&remote, sizeof(remote)) < 0) {
+        close(sock);
+        return -1;
+    }
+
+    socklen_t len = sizeof(*addr);
+    if (getsockname(sock, (struct sockaddr*)addr, &len) < 0) {
+        close(sock);
+        return -1;
+    }
+
+    close(sock);
+    return 0;
+#endif
+}
+
+/**
+ * @brief Add a local host candidate to ICE agent
+ */
+static int add_local_host_candidate(lws_sess_t* sess, uint8_t stream,
+                                    uint16_t component, const struct sockaddr* addr)
+{
+    struct ice_candidate_t cand;
+
+    memset(&cand, 0, sizeof(cand));
+    cand.stream = stream;
+    cand.component = component;
+    cand.type = ICE_CANDIDATE_HOST;
+    cand.protocol = STUN_PROTOCOL_UDP;
+
+    /* For host candidates, both addr and host are the same */
+    memcpy(&cand.host, addr, sizeof(struct sockaddr_in));
+    memcpy(&cand.addr, addr, sizeof(struct sockaddr_in));
+
+    /* Calculate priority */
+    ice_candidate_priority(&cand);
+
+    /* Set foundation */
+    snprintf(cand.foundation, sizeof(cand.foundation), "%d", component);
+
+    int ret = ice_agent_add_local_candidate(sess->ice_agent, &cand);
+    if (ret == 0) {
+        char addr_str[INET_ADDRSTRLEN];
+        struct sockaddr_in* sin = (struct sockaddr_in*)addr;
+        inet_ntop(AF_INET, &sin->sin_addr, addr_str, sizeof(addr_str));
+        lws_log_info("[SESS] Added local host candidate: %s:%d (stream=%d, component=%d, priority=%u)\n",
+                    addr_str, ntohs(sin->sin_port), stream, component, cand.priority);
+    }
+
+    return ret;
+}
+
 int lws_sess_gather_candidates(lws_sess_t* sess)
 {
     if (!sess) {
@@ -589,7 +706,22 @@ int lws_sess_gather_candidates(lws_sess_t* sess)
     change_state(sess, LWS_SESS_STATE_GATHERING);
 
     /* Add local host candidates */
-    /* TODO: Get local network interfaces and add host candidates */
+    /* Get local IP address */
+    struct sockaddr_in local_addr;
+    memset(&local_addr, 0, sizeof(local_addr));
+    local_addr.sin_family = AF_INET;
+
+    if (get_local_ipv4(&local_addr) == 0) {
+        /* Add RTP candidate (component 1) */
+        local_addr.sin_port = htons(LWS_DEFAULT_RTP_PORT);
+        add_local_host_candidate(sess, 0, 1, (struct sockaddr*)&local_addr);
+
+        /* Add RTCP candidate (component 2) */
+        local_addr.sin_port = htons(LWS_DEFAULT_RTP_PORT + 1);
+        add_local_host_candidate(sess, 0, 2, (struct sockaddr*)&local_addr);
+    } else {
+        lws_log_error(0, "[SESS] Failed to get local IP address\n");
+    }
 
     /* Start STUN/TURN gathering if configured */
     if (sess->config.stun_server) {
@@ -617,24 +749,172 @@ int lws_sess_gather_candidates(lws_sess_t* sess)
 }
 
 /**
+ * @brief Parse SDP attribute value
+ * @param sdp SDP string
+ * @param attr Attribute name (e.g., "ice-ufrag")
+ * @param value Output buffer for value
+ * @param value_size Size of output buffer
+ * @return 0 on success, -1 on failure
+ */
+static int parse_sdp_attribute(const char* sdp, const char* attr, char* value, size_t value_size)
+{
+    char search_str[128];
+    const char* line;
+    const char* end;
+    size_t attr_len;
+
+    snprintf(search_str, sizeof(search_str), "a=%s:", attr);
+    line = strstr(sdp, search_str);
+
+    if (!line) {
+        return -1;
+    }
+
+    /* Move past "a=attr:" */
+    line += strlen(search_str);
+
+    /* Find end of line */
+    end = strchr(line, '\r');
+    if (!end) {
+        end = strchr(line, '\n');
+    }
+    if (!end) {
+        end = line + strlen(line);
+    }
+
+    /* Copy value */
+    attr_len = end - line;
+    if (attr_len >= value_size) {
+        attr_len = value_size - 1;
+    }
+
+    memcpy(value, line, attr_len);
+    value[attr_len] = '\0';
+
+    return 0;
+}
+
+/**
  * @brief Set remote SDP
  */
 int lws_sess_set_remote_sdp(lws_sess_t* sess, const char* sdp)
 {
+    char ufrag[LWS_MAX_UFRAG_LEN];
+    char pwd[LWS_MAX_PWD_LEN];
+    int ret;
+
     if (!sess || !sdp) {
         return -1;
     }
 
     lws_log_info("[SESS] Setting remote SDP (%zu bytes)", strlen(sdp));
-
-    /* TODO: Parse SDP and extract:
-     * - Remote ICE credentials (ufrag, pwd)
-     * - Remote ICE candidates
-     * - Media info (codec, port, etc.)
-     */
-
-    /* For now, just log it */
     lws_log_debug("[SESS] Remote SDP:\n%s", sdp);
+
+    /* Parse ICE credentials */
+    if (parse_sdp_attribute(sdp, "ice-ufrag", ufrag, sizeof(ufrag)) == 0 &&
+        parse_sdp_attribute(sdp, "ice-pwd", pwd, sizeof(pwd)) == 0) {
+
+        lws_log_info("[SESS] Extracted remote ICE credentials: ufrag=%s, pwd=%s", ufrag, pwd);
+
+        /* Set remote auth for stream 0 */
+        ret = ice_agent_set_remote_auth(sess->ice_agent, 0, ufrag, pwd);
+        if (ret != 0) {
+            lws_log_error(0, "[SESS] Failed to set remote ICE auth (ret=%d)\n", ret);
+            return -1;
+        }
+
+        lws_log_info("[SESS] Remote ICE auth set successfully");
+    } else {
+        lws_log_warn(0, "[SESS] Failed to parse ICE credentials from SDP\n");
+    }
+
+    /* Parse remote ICE candidates */
+    const char* line = sdp;
+    const char* cand_prefix = "a=candidate:";
+    int cand_count = 0;
+
+    while ((line = strstr(line, cand_prefix)) != NULL) {
+        const char* cand_line = line;
+        const char* end;
+
+        /* Find end of candidate line */
+        end = strchr(cand_line, '\r');
+        if (!end) {
+            end = strchr(cand_line, '\n');
+        }
+        if (!end) {
+            end = cand_line + strlen(cand_line);
+        }
+
+        /* Parse candidate fields */
+        struct ice_candidate_t cand;
+        char foundation[33];
+        char transport[10];
+        char ip[64];
+        char cand_type[16];
+        uint16_t component;
+        uint32_t priority;
+        uint16_t port;
+
+        memset(&cand, 0, sizeof(cand));
+
+        /* Parse: a=candidate:foundation component transport priority ip port typ type */
+        int fields = sscanf(cand_line, "a=candidate:%32s %hu %9s %u %63s %hu typ %15s",
+                           foundation, &component, transport, &priority, ip, &port, cand_type);
+
+        if (fields == 7) {
+            /* Set candidate fields */
+            snprintf(cand.foundation, sizeof(cand.foundation), "%s", foundation);
+            cand.stream = 0;
+            cand.component = component;
+            cand.protocol = STUN_PROTOCOL_UDP;  /* Assume UDP for now */
+            cand.priority = priority;
+
+            /* Parse candidate type */
+            if (strcmp(cand_type, "host") == 0) {
+                cand.type = ICE_CANDIDATE_HOST;
+            } else if (strcmp(cand_type, "srflx") == 0) {
+                cand.type = ICE_CANDIDATE_SERVER_REFLEXIVE;
+            } else if (strcmp(cand_type, "relay") == 0) {
+                cand.type = ICE_CANDIDATE_RELAYED;
+            } else {
+                lws_log_warn(0, "[SESS] Unknown candidate type: %s\n", cand_type);
+                line = end;
+                continue;
+            }
+
+            /* Parse IP address and port */
+            struct sockaddr_in* sin = (struct sockaddr_in*)&cand.addr;
+            sin->sin_family = AF_INET;
+            sin->sin_port = htons(port);
+            if (inet_pton(AF_INET, ip, &sin->sin_addr) != 1) {
+                lws_log_warn(0, "[SESS] Failed to parse candidate IP: %s\n", ip);
+                line = end;
+                continue;
+            }
+
+            /* For host candidates, addr and host are the same */
+            memcpy(&cand.host, &cand.addr, sizeof(cand.host));
+
+            /* Add candidate to ICE agent */
+            ret = ice_agent_add_remote_candidate(sess->ice_agent, &cand);
+            if (ret == 0) {
+                cand_count++;
+                lws_log_info("[SESS] Added remote %s candidate: %s:%d (component=%d, priority=%u)",
+                            cand_type, ip, port, component, priority);
+            } else {
+                lws_log_warn(0, "[SESS] Failed to add remote candidate (ret=%d)\n", ret);
+            }
+        }
+
+        line = end;
+    }
+
+    if (cand_count > 0) {
+        lws_log_info("[SESS] Parsed %d remote ICE candidates", cand_count);
+    } else {
+        lws_log_warn(0, "[SESS] No remote ICE candidates found in SDP\n");
+    }
 
     return 0;
 }

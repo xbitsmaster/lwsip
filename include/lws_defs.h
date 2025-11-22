@@ -97,6 +97,8 @@ extern "C" {
  * RTP相关常量
  * ======================================== */
 
+#define LWS_DEFAULT_RTP_PORT            50000   /**< 默认RTP端口 */
+#define LWS_DEFAULT_RTCP_PORT           50001   /**< 默认RTCP端口 */
 #define LWS_DEFAULT_RTP_CLOCK_RATE      90000   /**< 默认RTP时钟频率(视频) */
 #define LWS_DEFAULT_RTCP_INTERVAL       5000    /**< 默认RTCP间隔(毫秒) */
 #define LWS_DEFAULT_JITTER_BUFFER_MS    50      /**< 默认抖动缓冲区(毫秒) */
