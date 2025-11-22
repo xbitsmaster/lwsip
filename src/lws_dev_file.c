@@ -211,8 +211,33 @@ static int file_open(lws_dev_t* dev) {
 
     memset(data, 0, sizeof(lws_dev_file_data_t));
 
-    /* 复制文件路径 */
-    strncpy(data->filepath, dev->config.file.file_path, sizeof(data->filepath) - 1);
+    /* 获取文件路径:
+     * - FILE_WRITER: Use dev->device_name (safely copied from config.device_name)
+     *   because FILE_WRITER uses union.audio config, not union.file
+     * - FILE_READER: Use dev->config.file.file_path (from union)
+     */
+    const char* filepath = NULL;
+
+    if (dev->type == LWS_DEV_FILE_WRITER) {
+        /* FILE_WRITER stores path in device_name (safely copied during create) */
+        if (dev->device_name[0] != '\0' &&
+            strncmp(dev->device_name, "default_", 8) != 0) {
+            filepath = dev->device_name;
+        }
+    } else {
+        /* FILE_READER stores path in union.file.file_path */
+        if (dev->config.file.file_path) {
+            filepath = dev->config.file.file_path;
+        }
+    }
+
+    if (!filepath || filepath[0] == '\0') {
+        lws_log_error(0, "[DEV_FILE] No file path specified\n");
+        free(data);
+        return -1;
+    }
+
+    strncpy(data->filepath, filepath, sizeof(data->filepath) - 1);
 
     /* 确定读写模式 */
     data->is_writing = (dev->type == LWS_DEV_FILE_WRITER) ? 1 : 0;

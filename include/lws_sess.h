@@ -224,6 +224,7 @@ typedef struct {
     int audio_channels;             /**< 音频声道数 */
     lws_dev_t* audio_capture_dev;   /**< 音频采集设备 */
     lws_dev_t* audio_playback_dev;  /**< 音频播放设备 */
+    lws_dev_t* audio_record_dev;    /**< 音频录音设备 (可选，用于录制接收到的音频) */
 
     /* 视频配置 */
     int enable_video;               /**< 启用视频 */

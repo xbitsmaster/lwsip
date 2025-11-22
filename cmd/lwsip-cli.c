@@ -26,6 +26,7 @@
 typedef struct {
     /* Configuration */
     char device_path[256];
+    char record_path[256];
     char server_addr[256];
     char username[64];
     char password[64];
@@ -36,6 +37,7 @@ typedef struct {
     lws_trans_t* trans;
     lws_dev_t* audio_capture;
     lws_dev_t* audio_playback;
+    lws_dev_t* audio_recorder;
     lws_sess_t* sess;
     lws_agent_t* agent;
 
@@ -322,21 +324,11 @@ static int init_lwsip(void) {
 
     /* Audio capture device (file or real device) */
     if (strlen(g_app.device_path) > 0) {
-        /* Use file device */
+        /* Use file device - file format will be auto-detected from file content */
         lws_dev_init_file_reader_config(&dev_config, g_app.device_path);
-
-        /* Auto-detect audio format from file extension */
-        lws_audio_format_t format;
-        int sample_rate, channels;
-        if (detect_audio_file_format(g_app.device_path, &format, &sample_rate, &channels) < 0) {
-            fprintf(stderr, "[CLI] Failed to detect audio file format\n");
-            return -1;
-        }
-
-        dev_config.audio.format = format;
-        dev_config.audio.sample_rate = sample_rate;
-        dev_config.audio.channels = channels;
-        dev_config.audio.frame_duration_ms = 20;
+        /* Note: Do NOT modify audio fields after init_file_reader_config!
+         * The file.file_path and audio fields are in the same union.
+         * File device will read audio parameters from the file itself. */
     } else {
         /* Use real audio device */
         lws_dev_init_audio_capture_config(&dev_config);
@@ -383,11 +375,48 @@ static int init_lwsip(void) {
 
     printf("[CLI] Audio playback device started\n");
 
+    /* Audio recording device (if record path specified) */
+    if (strlen(g_app.record_path) > 0) {
+        lws_dev_config_t record_config;
+
+        /* Initialize as file writer */
+        memset(&record_config, 0, sizeof(record_config));
+        record_config.type = LWS_DEV_FILE_WRITER;
+
+        /* WORKAROUND: Union conflict between file.file_path and audio config.
+         * FILE_WRITER needs both file path AND audio params for MP4 format.
+         * Store file path in device_name, set audio params in union. */
+        record_config.device_name = g_app.record_path;  /* File path stored here */
+        record_config.audio.format = LWS_AUDIO_FMT_PCMA;  /* G.711 A-law (RTP payload) */
+        record_config.audio.sample_rate = 8000;
+        record_config.audio.channels = 1;
+        record_config.audio.frame_duration_ms = 20;
+
+        g_app.audio_recorder = lws_dev_create(&record_config, NULL);
+        if (!g_app.audio_recorder) {
+            fprintf(stderr, "[CLI] Failed to create audio recorder\n");
+            return -1;
+        }
+
+        if (lws_dev_open(g_app.audio_recorder) < 0) {
+            fprintf(stderr, "[CLI] Failed to open audio recorder\n");
+            return -1;
+        }
+
+        if (lws_dev_start(g_app.audio_recorder) < 0) {
+            fprintf(stderr, "[CLI] Failed to start audio recorder\n");
+            return -1;
+        }
+
+        printf("[CLI] Audio recorder started: %s\n", g_app.record_path);
+    }
+
     /* Create media session */
     lws_sess_config_t sess_config;
     lws_sess_init_audio_config(&sess_config, "stun.l.google.com:19302", LWS_RTP_PAYLOAD_PCMA);
     sess_config.audio_capture_dev = g_app.audio_capture;
     sess_config.audio_playback_dev = g_app.audio_playback;
+    sess_config.audio_record_dev = g_app.audio_recorder;  /* May be NULL if not recording */
 
     lws_sess_handler_t sess_handler = {
         .on_state_changed = on_sess_state_changed,
@@ -511,6 +540,14 @@ static void cleanup_lwsip(void) {
         g_app.audio_playback = NULL;
     }
 
+    if (g_app.audio_recorder) {
+        lws_dev_stop(g_app.audio_recorder);
+        lws_dev_close(g_app.audio_recorder);
+        lws_dev_destroy(g_app.audio_recorder);
+        g_app.audio_recorder = NULL;
+        printf("[CLI] Audio recorder closed\n");
+    }
+
     if (g_app.trans) {
         lws_trans_destroy(g_app.trans);
         g_app.trans = NULL;
@@ -535,6 +572,8 @@ static void print_usage(const char* progname) {
     printf("\nOptional options:\n");
     printf("  -d, --device <path>    Audio file for playback (.wav or .mp4)\n");
     printf("                         If not specified, use real microphone\n");
+    printf("  -r, --record <path>    Record received audio to file (.wav or .mp4)\n");
+    printf("                         If not specified, no recording\n");
     printf("  -c, --call <target>    Make call to target user\n");
     printf("                         If not specified, wait for incoming calls\n");
     printf("  -h, --help             Show this help message\n");
@@ -545,11 +584,14 @@ static void print_usage(const char* progname) {
     printf("  %s -s sip:192.168.1.100:5060 -u 1001 -p secret -c 1002\n\n", progname);
     printf("  # Use audio file:\n");
     printf("  %s -s sip:192.168.1.100:5060 -u 1001 -p secret -d audio.mp4 -c 1002\n\n", progname);
+    printf("  # Use audio file and record:\n");
+    printf("  %s -s sip:192.168.1.100:5060 -u 1001 -p secret -d audio.wav -r record.wav -c 1002\n\n", progname);
 }
 
 static int parse_args(int argc, char* argv[]) {
     static struct option long_options[] = {
         {"device",   required_argument, 0, 'd'},
+        {"record",   required_argument, 0, 'r'},
         {"server",   required_argument, 0, 's'},
         {"username", required_argument, 0, 'u'},
         {"password", required_argument, 0, 'p'},
@@ -561,10 +603,13 @@ static int parse_args(int argc, char* argv[]) {
     int c;
     int option_index = 0;
 
-    while ((c = getopt_long(argc, argv, "d:s:u:p:c:h", long_options, &option_index)) != -1) {
+    while ((c = getopt_long(argc, argv, "d:r:s:u:p:c:h", long_options, &option_index)) != -1) {
         switch (c) {
             case 'd':
                 strncpy(g_app.device_path, optarg, sizeof(g_app.device_path) - 1);
+                break;
+            case 'r':
+                strncpy(g_app.record_path, optarg, sizeof(g_app.record_path) - 1);
                 break;
             case 's':
                 strncpy(g_app.server_addr, optarg, sizeof(g_app.server_addr) - 1);

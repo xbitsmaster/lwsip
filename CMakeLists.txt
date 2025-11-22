@@ -112,6 +112,7 @@ set(COMMON_LIBS
 # ============================================================
 set(LWS_SOURCES
     src/lws_agent.c
+    src/lws_auth.c
     src/lws_trans.c
     src/lws_trans_udp.c
     src/lws_sess.c

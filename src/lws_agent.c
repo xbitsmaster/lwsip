@@ -18,6 +18,7 @@
 #include "lws_timer.h"
 #include "lws_mem.h"
 #include "lws_log.h"
+#include "lws_auth.h"  /* SIP Digest Authentication */
 
 #include <time.h>  /* For time() */
 
@@ -88,6 +89,10 @@ struct lws_agent_t {
     /* SIP registration */
     struct sip_uac_transaction_t* register_txn;
     int register_expires;
+
+    /* Authentication credentials */
+    char username[64];
+    char password[128];
 };
 
 /* ========================================
@@ -746,6 +751,10 @@ lws_agent_t* lws_agent_create(const lws_agent_config_t* config,
     agent->handler = *handler;
     agent->state = LWS_AGENT_STATE_IDLE;
 
+    /* Save credentials for authentication */
+    strncpy(agent->username, config->username, sizeof(agent->username) - 1);
+    strncpy(agent->password, config->password, sizeof(agent->password) - 1);
+
     /* Initialize dialog list */
     LIST_INIT_HEAD(&agent->dialogs);
     agent->dialog_count = 0;
@@ -1065,7 +1074,6 @@ static int uac_onreply_callback(void* param, const struct sip_message_t* reply,
                           struct sip_uac_transaction_t* t, int code)
 {
     lws_agent_t* agent = (lws_agent_t*)param;
-    LWS_UNUSED(reply);
 
     lws_log_info("[DEBUG] uac_onreply_callback called: param=%p, code=%d\n", param, code);
 
@@ -1080,16 +1088,139 @@ static int uac_onreply_callback(void* param, const struct sip_message_t* reply,
     if (code >= 200 && code < 300) {
         /* 2xx - Success */
         if (agent->state == LWS_AGENT_STATE_REGISTERING) {
+            lws_agent_state_t old_state = agent->state;
             agent->state = LWS_AGENT_STATE_REGISTERED;
 
-            /* Trigger callback */
+            /* Trigger state change callback */
+            if (agent->handler.on_state_changed) {
+                agent->handler.on_state_changed(agent, old_state,
+                                               LWS_AGENT_STATE_REGISTERED,
+                                               agent->handler.userdata);
+            }
+
+            /* Trigger register result callback */
             if (agent->handler.on_register_result) {
                 agent->handler.on_register_result(agent, 1, code, "OK",
                                                  agent->handler.userdata);
             }
         }
+    } else if (code == 401 || code == 407) {
+        /* Authentication required - implement Digest authentication */
+        const struct cstring_t* auth_header = sip_message_get_header_by_name(reply,
+            code == 401 ? "WWW-Authenticate" : "Proxy-Authenticate");
+
+        if (!auth_header || !auth_header->p) {
+            lws_log_error(0, "[AUTH] No authentication challenge in %d response\n", code);
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Parse authentication challenge */
+        lws_auth_challenge_t challenge;
+        char challenge_str[1024];
+        snprintf(challenge_str, sizeof(challenge_str), "%.*s", (int)auth_header->n, auth_header->p);
+
+        lws_log_info("[AUTH] Challenge: %s\n", challenge_str);
+
+        if (lws_auth_parse_challenge(challenge_str, &challenge) < 0) {
+            lws_log_error(0, "[AUTH] Failed to parse authentication challenge\n");
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Generate authentication response */
+        lws_auth_credentials_t creds;
+        creds.username = agent->username;
+        creds.password = agent->password;
+
+        lws_auth_response_t auth_response;
+        char uri[256];
+        snprintf(uri, sizeof(uri), "sip:%s", agent->config.registrar);
+
+        if (lws_auth_generate_response(&challenge, &creds, "REGISTER", uri, &auth_response) < 0) {
+            lws_log_error(0, "[AUTH] Failed to generate authentication response\n");
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Build Authorization header */
+        char auth_header_value[2048];
+        if (lws_auth_build_authorization_header(&auth_response, agent->username,
+                                               auth_header_value, sizeof(auth_header_value)) < 0) {
+            lws_log_error(0, "[AUTH] Failed to build Authorization header\n");
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        lws_log_info("[AUTH] Sending authenticated REGISTER\n");
+
+        /* Build AOR (Address of Record) */
+        char aor[LWS_MAX_URI_LEN];
+        snprintf(aor, sizeof(aor), "sip:%s@%s",
+                 agent->config.username, agent->config.domain);
+
+        /* Build registrar URI */
+        char registrar[LWS_MAX_URI_LEN];
+        if (agent->config.registrar[0] != '\0') {
+            if (agent->config.registrar_port != 0 && agent->config.registrar_port != 5060) {
+                snprintf(registrar, sizeof(registrar), "sip:%s:%d",
+                         agent->config.registrar, agent->config.registrar_port);
+            } else {
+                snprintf(registrar, sizeof(registrar), "sip:%s", agent->config.registrar);
+            }
+        } else {
+            /* Use domain as registrar */
+            snprintf(registrar, sizeof(registrar), "sip:%s", agent->config.domain);
+        }
+
+        /* Get expires time from config */
+        int expires = agent->config.register_expires > 0 ?
+                      agent->config.register_expires : 3600;
+
+        /* Create new REGISTER transaction */
+        struct sip_uac_transaction_t* new_txn = sip_uac_register(
+            agent->sip_agent,
+            aor,
+            registrar,
+            expires,
+            uac_onreply_callback,
+            agent
+        );
+
+        if (!new_txn) {
+            lws_log_error(0, "[AUTH] Failed to create authenticated REGISTER transaction\n");
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Add Authorization/Proxy-Authorization header */
+        const char* auth_header_name = (code == 401) ? "Authorization" : "Proxy-Authorization";
+        if (sip_uac_add_header(new_txn, auth_header_name, auth_header_value) < 0) {
+            lws_log_error(0, "[AUTH] Failed to add Authorization header\n");
+            sip_uac_transaction_release(new_txn);
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Actually send the authenticated REGISTER */
+        int ret = sip_uac_send(new_txn, NULL, 0, &agent->sip_transport, agent);
+        if (ret != 0) {
+            lws_log_error(0, "[AUTH] Failed to send authenticated REGISTER: %d\n", ret);
+            sip_uac_transaction_release(new_txn);
+            agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
+            return -1;
+        }
+
+        /* Replace old transaction */
+        if (agent->register_txn) {
+            sip_uac_transaction_release(agent->register_txn);
+        }
+        agent->register_txn = new_txn;
+
+        lws_log_info("[AUTH] Authenticated REGISTER sent successfully\n");
+        return 0;
     } else if (code >= 300) {
-        /* Failure */
+        /* Other failures */
         if (agent->state == LWS_AGENT_STATE_REGISTERING) {
             agent->state = LWS_AGENT_STATE_REGISTER_FAILED;
 
@@ -1187,6 +1318,127 @@ static int uac_oninvite(void* param, const struct sip_message_t* reply,
         /* Note: libsip automatically handles ACK for 2xx, we just need to
          * call sip_uac_ack if we have additional SDP to send */
     }
+    else if (code == 401 || code == 407) {
+        /* Authentication required for INVITE */
+        const struct cstring_t* auth_header = sip_message_get_header_by_name(reply,
+            code == 401 ? "WWW-Authenticate" : "Proxy-Authenticate");
+
+        if (!auth_header || !auth_header->p) {
+            lws_log_error(0, "[AUTH] No authentication challenge in %d response for INVITE\n", code);
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        char challenge_str[1024];
+        int challenge_len = auth_header->n < (int)sizeof(challenge_str) - 1 ?
+                           auth_header->n : (int)sizeof(challenge_str) - 1;
+        memcpy(challenge_str, auth_header->p, challenge_len);
+        challenge_str[challenge_len] = '\0';
+
+        lws_log_info("[AUTH] INVITE Challenge: %s\n", challenge_str);
+
+        /* Parse the authentication challenge */
+        lws_auth_challenge_t challenge;
+        if (lws_auth_parse_challenge(challenge_str, &challenge) != 0) {
+            lws_log_error(0, "[AUTH] Failed to parse authentication challenge for INVITE\n");
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        lws_log_info("[AUTH] Parsed challenge: realm=%s, nonce=%s, algorithm=%s, qop=%s\n",
+                    challenge.realm, challenge.nonce, challenge.algorithm, challenge.qop);
+
+        /* Generate authentication response */
+        lws_auth_credentials_t creds;
+        creds.username = agent->username;
+        creds.password = agent->password;
+
+        lws_auth_response_t auth_response;
+        char request_uri[512];
+        snprintf(request_uri, sizeof(request_uri), "%s", dlg->public.remote_uri);
+
+        if (lws_auth_generate_response(&challenge, &creds, "INVITE",
+                                       request_uri, &auth_response) != 0) {
+            lws_log_error(0, "[AUTH] Failed to generate auth response for INVITE\n");
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        lws_log_info("[AUTH] Generated response: %s\n", auth_response.response);
+
+        /* Build Authorization header */
+        char auth_header_value[2048];
+        if (lws_auth_build_authorization_header(&auth_response, agent->username,
+                                               auth_header_value,
+                                               sizeof(auth_header_value)) != 0) {
+            lws_log_error(0, "[AUTH] Failed to build auth header for INVITE\n");
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        lws_log_info("[AUTH] Sending authenticated INVITE\n");
+
+        /* Build From header */
+        char from[512];
+        if (strlen(agent->config.nickname) > 0) {
+            snprintf(from, sizeof(from), "\"%s\" <%s>",
+                    agent->config.nickname, dlg->public.local_uri);
+        } else {
+            snprintf(from, sizeof(from), "<%s>", dlg->public.local_uri);
+        }
+
+        /* Create new authenticated INVITE transaction */
+        struct sip_uac_transaction_t* new_txn = sip_uac_invite(agent->sip_agent,
+                                                               from,
+                                                               dlg->public.remote_uri,
+                                                               uac_oninvite,
+                                                               dlg);
+        if (!new_txn) {
+            lws_log_error(LWS_ERR_SIP_CALL, "[AUTH] Failed to create authenticated INVITE transaction\n");
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        /* Add Authorization header */
+        const char* auth_header_name = (code == 401) ? "Authorization" : "Proxy-Authorization";
+        int ret = sip_uac_add_header(new_txn, auth_header_name, auth_header_value);
+        if (ret != 0) {
+            lws_log_error(0, "[AUTH] Failed to add %s header: %d\n", auth_header_name, ret);
+            sip_uac_transaction_release(new_txn);
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        /* Get SDP from session and send authenticated INVITE with SDP */
+        const char* sdp = NULL;
+        if (dlg->sess) {
+            sdp = lws_sess_get_local_sdp(dlg->sess);
+        }
+
+        if (sdp && strlen(sdp) > 0) {
+            ret = sip_uac_send(new_txn, sdp, strlen(sdp), &agent->sip_transport, agent);
+        } else {
+            lws_log_error(0, "[AUTH] No SDP available for authenticated INVITE\n");
+            ret = sip_uac_send(new_txn, NULL, 0, &agent->sip_transport, agent);
+        }
+
+        if (ret != 0) {
+            lws_log_error(0, "[AUTH] Failed to send authenticated INVITE: %d\n", ret);
+            sip_uac_transaction_release(new_txn);
+            dlg->state = LWS_DIALOG_STATE_FAILED;
+            return -1;
+        }
+
+        lws_log_info("[AUTH] Authenticated INVITE sent successfully\n");
+
+        /* Replace old transaction */
+        if (dlg->invite_txn) {
+            sip_uac_transaction_release(dlg->invite_txn);
+        }
+        dlg->invite_txn = new_txn;
+
+        return 0;
+    }
     else if (code >= 300) {
         /* 3xx, 4xx, 5xx, 6xx - Failure */
         dlg->state = LWS_DIALOG_STATE_FAILED;
@@ -1235,9 +1487,20 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri)
     snprintf(local_uri, sizeof(local_uri), "sip:%s@%s",
              agent->config.username, agent->config.domain);
 
+    /* Build To URI - if target doesn't have "sip:" prefix, construct full URI */
+    char to_uri[256];
+    if (strstr(target_uri, "sip:") == target_uri) {
+        /* Already a full SIP URI */
+        snprintf(to_uri, sizeof(to_uri), "%s", target_uri);
+    } else {
+        /* Just a username - construct full URI using agent's domain */
+        snprintf(to_uri, sizeof(to_uri), "sip:%s@%s",
+                target_uri, agent->config.domain);
+    }
+
     /* Create dialog */
     lws_dialog_intl_t* dlg = lws_agent_create_dialog(agent, call_id,
-                                                     local_uri, target_uri);
+                                                     local_uri, to_uri);
     if (!dlg) {
         lws_log_error(LWS_ENOMEM, "Failed to create dialog\n");
         return NULL;
@@ -1257,7 +1520,7 @@ lws_dialog_t* lws_agent_make_call(lws_agent_t* agent, const char* target_uri)
     }
 
     /* Create UAC INVITE transaction (but don't send yet - wait for SDP) */
-    dlg->invite_txn = sip_uac_invite(agent->sip_agent, from, target_uri,
+    dlg->invite_txn = sip_uac_invite(agent->sip_agent, from, to_uri,
                                     uac_oninvite, dlg);
     if (!dlg->invite_txn) {
         lws_log_error(LWS_ERR_SIP_CALL, "Failed to create INVITE transaction\n");
